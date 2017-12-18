@@ -4,6 +4,8 @@ import sys
 
 sys._enablelegacywindowsfsencoding()
 with open("gbgData_201401.csv", 'r') as fp:
-    dum1 = pd.read_csv(fp, sep=";", decimal=",", nrows=10, encoding="utf-8")
+    dum1 = pd.read_csv(fp, sep=";", decimal=",", nrows=10, names=["DetectorID",
+          "VehicleClassID", "Timestamp", "Flow", "Speed", "Occupancy", "Confidence", "Tdiff"
+          "TimeCycle", "NoVehicles", "Headway", "MeasuresIncluded"],encoding="utf-8")
 
 print(dum1)
