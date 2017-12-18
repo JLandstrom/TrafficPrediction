@@ -1,1 +1,9 @@
-test
+import pandas as pd
+import matplotlib.pyplot as plt
+import sys
+
+sys._enablelegacywindowsfsencoding()
+with open("gbgData_201401.csv", 'r') as fp:
+    dum1 = pd.read_csv(fp, sep=";", decimal=",", nrows=10, encoding="utf-8")
+
+print(dum1)
