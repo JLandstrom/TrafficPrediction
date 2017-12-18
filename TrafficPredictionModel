@@ -11,7 +11,10 @@ sys._enablelegacywindowsfsencoding()
 # dataShape = dum1.shape
 # print(dataShape)
 
-detectorRows = []
+
+detectorRows = pd.DataFrame(columns=["DetectorID",
+           "VehicleClassID", "Timestamp", "Flow", "Speed", "Occupancy", "Confidence", "Tdiff"
+           "TimeCycle", "NoVehicles", "Headway", "MeasuresIncluded"])
 booleans = []
 i = 1
 for chunk in pd.read_csv("gbgData_201401.csv", sep=";", decimal=",", encoding="utf-8", chunksize=1000000, names=["DetectorID",
@@ -25,7 +28,8 @@ for chunk in pd.read_csv("gbgData_201401.csv", sep=";", decimal=",", encoding="u
           booleans.append(True)
         else:
           booleans.append(False)
-    detectorRows.append(chunk[booleans])
+    detectorRows.append(chunk[booleans], ignore_index=True)
+    print(chunk[booleans])
 
 print(detectorRows)
 
