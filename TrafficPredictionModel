@@ -33,6 +33,7 @@ for chunk in pd.read_csv("gbgData_201401.csv", sep=";", decimal=",", encoding="u
 
 print(detectorRows)
 
+# push test
 
 # booleans = []
 # for detId in dum1.DetectorID:
