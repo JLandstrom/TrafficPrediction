@@ -1,6 +1,6 @@
 import pandas as pd
 import matplotlib.pyplot as plt
-import sys
+import sys, getopt
 
 sys._enablelegacywindowsfsencoding()
 # with open("gbgData_201401.csv", 'r') as fp:
@@ -11,28 +11,41 @@ sys._enablelegacywindowsfsencoding()
 # dataShape = dum1.shape
 # print(dataShape)
 
+detectorNo = 0
+inputfile = ""
+outputfile = "default.csv"
+printToFile = False
 
 detectorRows = pd.DataFrame({'DetectorID':[],
-           'VehicleClassID':[], 'Timestamp':[], 'Flow':[], 'Speed':[], 'Occupancy':[], 'Confidence':[], 'Tdiff':[],
-           'TimeCycle':[], 'NoVehicles':[], 'Headway':[], 'MeasuresIncluded':[]})
+               'VehicleClassID':[], 'Timestamp':[], 'Flow':[], 'Speed':[], 'Occupancy':[], 'Confidence':[], 'Tdiff':[],
+               'TimeCycle':[], 'NoVehicles':[], 'Headway':[], 'MeasuresIncluded':[]})
 
-booleans = []
-i = 1
-for chunk in pd.read_csv("gbgData_201401.csv", sep=";", decimal=",", encoding="utf-8", chunksize=1000000, names=["DetectorID",
-           "VehicleClassID", "Timestamp", "Flow", "Speed", "Occupancy", "Confidence", "Tdiff",
-           "TimeCycle", "NoVehicles", "Headway", "MeasuresIncluded"], index_col=False):
-    print("handling chunk: " + repr(i))
-    i = i+1
-    booleans.clear()
-    for detId in chunk.DetectorID:
-        if detId == 20000:
-          booleans.append(True)
-        else:
-          booleans.append(False)
-    detectorRows = pd.concat([detectorRows, chunk[booleans]])
+def readfile():
+    global detectorRows
+    print("Analyzing",inputfile + "...")
+    booleans = []
+    i = 1
+    for chunk in pd.read_csv(inputfile, sep=";", decimal=",", encoding="utf-8", chunksize=1000000, names=["DetectorID",
+               "VehicleClassID", "Timestamp", "Flow", "Speed", "Occupancy", "Confidence", "Tdiff",
+               "TimeCycle", "NoVehicles", "Headway", "MeasuresIncluded"], index_col=False):
+        print("handling chunk: " + repr(i))
+        i = i+1
+        booleans.clear()
+        for detId in chunk.DetectorID:
+            if detId == detectorNo:
+              booleans.append(True)
+            else:
+              booleans.append(False)
+        detectorRows = pd.concat([detectorRows, chunk[booleans]])
 
-print(detectorRows)
-print(detectorRows.shape)
+    print(detectorRows)
+    print(detectorRows.shape)
+
+
+def printToCSV():
+    print("Writing to", outputfile)
+    toPrint = pd.DataFrame(detectorRows, columns=["VehicleClassID","Flow", "Timestamp"])
+    toPrint.to_csv(outputfile, sep=';')
 
 # booleans = []
 # for detId in dum1.DetectorID:
@@ -47,3 +60,26 @@ print(detectorRows.shape)
 #
 # print(dum1[indices])
 #print(dum1)
+
+def main(argv):
+    global inputfile, outputfile, detectorNo, printToFile
+    try:
+        opts, args = getopt.getopt(argv,"i:d:o:",["inputfile=","detector=","outputfile"])
+    except getopt.GetoptError:
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt == "-h":
+            sys.exit()
+        elif opt in ("-i", "--inputfile"):
+            inputfile = arg
+        elif opt in ("-o", "--outputfile"):
+            printToFile = True
+            outputfile = arg
+        elif opt in ("-d", "--detector"):
+            detectorNo = int(arg)
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
+    readfile()
+    if printToFile:
+        printToCSV()
