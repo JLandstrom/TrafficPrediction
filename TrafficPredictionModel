@@ -3,17 +3,10 @@ import matplotlib.pyplot as plt
 import sys, getopt
 
 sys._enablelegacywindowsfsencoding()
-# with open("gbgData_201401.csv", 'r') as fp:
-#     dum1 = pd.read_csv(fp, sep=";", decimal=",",  encoding="utf-8", names=["DetectorID",
-#           "VehicleClassID", "Timestamp", "Flow", "Speed", "Occupancy", "Confidence", "Tdiff"
-#           "TimeCycle", "NoVehicles", "Headway", "MeasuresIncluded"], index_col=False)
-#
-# dataShape = dum1.shape
-# print(dataShape)
 
-detectorNo = 0
+# 1066, 1067, 1068
+detectorIds = []
 inputfile = ""
-outputfile = "default.csv"
 printToFile = False
 
 detectorRows = pd.DataFrame({'DetectorID':[],
@@ -32,7 +25,7 @@ def readfile():
         i = i+1
         booleans.clear()
         for detId in chunk.DetectorID:
-            if detId == detectorNo:
+            if detId in detectorIds:
               booleans.append(True)
             else:
               booleans.append(False)
@@ -43,9 +36,49 @@ def readfile():
 
 
 def printToCSV():
-    print("Writing to", outputfile)
-    toPrint = pd.DataFrame(detectorRows, columns=["VehicleClassID","Flow", "Timestamp"])
-    toPrint.to_csv(outputfile, sep=';')
+    toPrint = pd.DataFrame(detectorRows, columns=["VehicleClassID", "NoVehicles", "Timestamp"])
+    outputfile = "data_detectorId"
+    for detector in detectorIds:
+        outputfile += "_" + str(detector)
+    filename = outputfile + ".csv"
+
+    print("Writing to", filename)
+    toPrint.to_csv(filename, sep=';')
+
+
+
+def main(argv):
+    global inputfile, detectorIds, printToFile
+    try:
+        opts, args = getopt.getopt(argv,"i:d:o",["inputfile=","detectors=","outputfile"])
+    except getopt.GetoptError:
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt == "-h":
+            sys.exit()
+        elif opt in ("-i", "--inputfile"):
+            inputfile = arg
+        elif opt in ("-o", "--outputfile"):
+            printToFile = True
+        elif opt in ("-d", "--detectors"):
+            detectorIds = arg.split(',')
+            #list string -> int
+            detectorIds = list(map(int, detectorIds))
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
+    readfile()
+    if printToFile:
+        printToCSV()
+
+
+# with open("gbgData_201401.csv", 'r') as fp:
+#     dum1 = pd.read_csv(fp, sep=";", decimal=",",  encoding="utf-8", names=["DetectorID",
+#           "VehicleClassID", "Timestamp", "Flow", "Speed", "Occupancy", "Confidence", "Tdiff"
+#           "TimeCycle", "NoVehicles", "Headway", "MeasuresIncluded"], index_col=False)
+#
+# dataShape = dum1.shape
+# print(dataShape)
 
 # booleans = []
 # for detId in dum1.DetectorID:
@@ -60,26 +93,3 @@ def printToCSV():
 #
 # print(dum1[indices])
 #print(dum1)
-
-def main(argv):
-    global inputfile, outputfile, detectorNo, printToFile
-    try:
-        opts, args = getopt.getopt(argv,"i:d:o:",["inputfile=","detector=","outputfile"])
-    except getopt.GetoptError:
-        sys.exit(2)
-    for opt, arg in opts:
-        if opt == "-h":
-            sys.exit()
-        elif opt in ("-i", "--inputfile"):
-            inputfile = arg
-        elif opt in ("-o", "--outputfile"):
-            printToFile = True
-            outputfile = arg
-        elif opt in ("-d", "--detector"):
-            detectorNo = int(arg)
-
-if __name__ == "__main__":
-    main(sys.argv[1:])
-    readfile()
-    if printToFile:
-        printToCSV()
