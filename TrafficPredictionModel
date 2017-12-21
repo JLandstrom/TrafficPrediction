@@ -1,26 +1,29 @@
+import matplotlib
 import pandas as pd
 import matplotlib.pyplot as plt
 import sys, getopt
 
+
+
 sys._enablelegacywindowsfsencoding()
 
-# 1066, 1067, 1068
+AllColumns = ["DetectorID", "VehicleClassID", "Timestamp", "Flow", "Speed", "Occupancy", "Confidence", "Tdiff",
+               "TimeCycle", "NoVehicles", "Headway", "MeasuresIncluded"]
+
+SelectedColumns = ["DetectorID", "VehicleClassID", "Timestamp", "Flow", "NoVehicles"]
 detectorIds = []
 inputfile = ""
 printToFile = False
-
-detectorRows = pd.DataFrame({'DetectorID':[],
-               'VehicleClassID':[], 'Timestamp':[], 'Flow':[], 'Speed':[], 'Occupancy':[], 'Confidence':[], 'Tdiff':[],
-               'TimeCycle':[], 'NoVehicles':[], 'Headway':[], 'MeasuresIncluded':[]})
+detectorRows = pd.DataFrame()
+filename = ""
 
 def readfile():
     global detectorRows
     print("Analyzing",inputfile + "...")
     booleans = []
     i = 1
-    for chunk in pd.read_csv(inputfile, sep=";", decimal=",", encoding="utf-8", chunksize=1000000, names=["DetectorID",
-               "VehicleClassID", "Timestamp", "Flow", "Speed", "Occupancy", "Confidence", "Tdiff",
-               "TimeCycle", "NoVehicles", "Headway", "MeasuresIncluded"], index_col=False):
+    appendedFrames = []
+    for chunk in pd.read_csv(inputfile, sep=";", decimal=",", encoding="utf-8", chunksize=1000000, names=AllColumns, index_col=False):
         print("handling chunk: " + repr(i))
         i = i+1
         booleans.clear()
@@ -29,28 +32,25 @@ def readfile():
               booleans.append(True)
             else:
               booleans.append(False)
-        detectorRows = pd.concat([detectorRows, chunk[booleans]])
+        appendedFrames.append(chunk[booleans])
 
+    detectorRows = pd.concat(appendedFrames)
     print(detectorRows)
     print(detectorRows.shape)
 
 
 def printToCSV():
-    toPrint = pd.DataFrame(detectorRows, columns=["VehicleClassID", "NoVehicles", "Timestamp"])
-    outputfile = "data_detectorId"
-    for detector in detectorIds:
-        outputfile += "_" + str(detector)
-    filename = outputfile + ".csv"
-
+    toPrint = pd.DataFrame(detectorRows, columns=SelectedColumns)
     print("Writing to", filename)
-    toPrint.to_csv(filename, sep=';')
-
+    toPrint.to_csv(filename, sep=';', index=False)
+    return filename
 
 
 def main(argv):
-    global inputfile, detectorIds, printToFile
+    global inputfile, detectorIds, printToFile, filename
+
     try:
-        opts, args = getopt.getopt(argv,"i:d:o",["inputfile=","detectors=","outputfile"])
+        opts, args = getopt.getopt(argv,"i:d:o",["inputfile=","detectors=","outputfile="])
     except getopt.GetoptError:
         sys.exit(2)
     for opt, arg in opts:
@@ -59,37 +59,38 @@ def main(argv):
         elif opt in ("-i", "--inputfile"):
             inputfile = arg
         elif opt in ("-o", "--outputfile"):
+            filename = arg
             printToFile = True
         elif opt in ("-d", "--detectors"):
             detectorIds = arg.split(',')
             #list string -> int
             detectorIds = list(map(int, detectorIds))
 
+def PlotDetectorData(filename):
+    dataFrame = pd.read_csv(filename, sep=";", decimal=",", encoding="utf-8", header=0)
+    dataFrame = dataFrame[dataFrame['VehicleClassID'] == 0].groupby(['Timestamp'])[['Flow', 'NoVehicles']].sum()
+    print(dataFrame)
+    dataFrame.plot()
+
+def CreateFileName():
+    outputfile = "data_detectorId"
+    for detector in detectorIds:
+        outputfile += "_" + str(detector)
+    filename = outputfile + ".csv"
+
 if __name__ == "__main__":
+    plotData = True
+    readNeeded = False
     main(sys.argv[1:])
-    readfile()
-    if printToFile:
-        printToCSV()
+
+    if filename == "":
+        CreateFileName()
+    if readNeeded:
+        readfile()
+        if printToFile:
+            printToCSV()
+    if plotData:
+        PlotDetectorData(filename)
 
 
-# with open("gbgData_201401.csv", 'r') as fp:
-#     dum1 = pd.read_csv(fp, sep=";", decimal=",",  encoding="utf-8", names=["DetectorID",
-#           "VehicleClassID", "Timestamp", "Flow", "Speed", "Occupancy", "Confidence", "Tdiff"
-#           "TimeCycle", "NoVehicles", "Headway", "MeasuresIncluded"], index_col=False)
-#
-# dataShape = dum1.shape
-# print(dataShape)
-
-# booleans = []
-# for detId in dum1.DetectorID:
-#  if detId == 20000:
-#      booleans.append(True)
-#  else:
-#      booleans.append(False)
-#
-# print(len(booleans))
-#
-# indices = pd.Series(booleans)
-#
-# print(dum1[indices])
-#print(dum1)
+#take in filename
