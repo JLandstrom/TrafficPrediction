@@ -7,6 +7,7 @@ import sys, getopt
 import TrafficPreprocessor
 import FileHandler
 import scipy.stats as stats
+import numpy as np
 from pandas.plotting import lag_plot
 
 
@@ -81,15 +82,15 @@ def PlotDistribution(dataset):
 
 """Creates filename for output file"""
 
-def CreateFileName():
-    outputfile = "data_detectorId"
-    for detector in detectorIds:
-        outputfile += "_" + str(detector)
-    return outputfile + ".csv"
+def CreateCsvFilePath(fileName, additions=[]):
+    outputFile = fileName
+    for addition in additions:
+        outputFile += "_" + str(addition)
+    return outputFile + ".csv"
 
 if __name__ == "__main__":
     main(sys.argv[1:])
-    outputFile = CreateFileName()
+    outputFile = CreateCsvFilePath("data_detectorId", detectorIds)
     fileHandler = FileHandler.CsvTrafficDataHandler(inputfile, outputFile, allColumns)
     preprocessor = TrafficPreprocessor.TrafficPreprocessor()
     if shouldRead:
@@ -98,14 +99,18 @@ if __name__ == "__main__":
             fileHandler.WriteFile(selectedColumns)
         dataset = fileHandler.ExtractDataFromColumns(selectedColumns)
     else:
-        dataset = dataFrame = pd.read_csv(outputFile, sep=";", decimal=",", encoding="utf-8", header=0)
+        dataset = dataFrame = pd.read_csv(outputFile, sep=";", decimal=",", encoding="utf-8", header=0, low_memory=False)
 
-    dataset = preprocessor.PreProcess(dataset,1200)
+    dataset = preprocessor.PreProcess(dataset, filePath=CreateCsvFilePath("Aggregated5MinIntervals", detectorIds))
 
-    fileHandler.dataset = dataset
-    fileHandler.WriteFile([])
+    # dfNans = dataset[dataset.isnull()].index
+    # print(dfNans)
+    # print(dataset)
+    #print(dataset)
+    #fileHandler.dataset = dataset
+    #fileHandler.WriteFile([])
     #CheckCorrectNumberOfMeasurements(dataset)
-    PlotDetectorData(dataset)
+    #PlotDetectorData(dataset)
     #if shouldPlot:
         #PlotDetectorData(dataset)
 

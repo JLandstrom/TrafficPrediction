@@ -45,19 +45,34 @@ class TrafficPreprocessor():
     """
     Method 
     """
-    def PreProcess(self, dataset, requiredDailyMeasures):
-        #start with validation of argument
-        if(isinstance(requiredDailyMeasures, int) == False or requiredDailyMeasures < 1):
-            raise ValueError("TimeIntervalOfMeasure must be of type integer and above 0.")
+    def PreProcess(self, dataset, vehicleClasses=[], filePath=""):
+        dataset['Timestamp'] = pd.to_datetime(dataset['Timestamp'])
 
-        if(self.mvHandler.lower() == 'remove'):
-            print("your reached removed. If this is written code is fine")
-            return self.RemoveDaysWithMissingData(dataset, requiredDailyMeasures)
-        elif(self.mvHandler.lower() == 'knn'):
-            print("your reached KNN. If this is written code is fine")
-            return self.NearestNeighborsImputation(dataset, requiredDailyMeasures)
-        else:
-            raise ValueError("mdHandler must be 'Remove' or 'KNN'")
+        if(vehicleClasses == []):
+            pass
+
+        dataFrame = dataset[dataset['VehicleClassID'] == 0]
+        dataFrame = dataFrame[['Timestamp', 'Flow', 'NoVehicles']].groupby(
+            ['Timestamp']).sum()
+        dataFrame = dataFrame.resample("5T").mean()
+
+        if(filePath != ""):
+            dataFrame.to_csv(filePath, sep=";", index=True)
+
+        return dataFrame
+
+        #start with validation of argument
+        # if(isinstance(requiredDailyMeasures, int) == False or requiredDailyMeasures < 1):
+        #     raise ValueError("TimeIntervalOfMeasure must be of type integer and above 0.")
+        #
+        # if(self.mvHandler.lower() == 'remove'):
+        #     print("your reached removed. If this is written code is fine")
+        #     return self.RemoveDaysWithMissingData(dataset, requiredDailyMeasures)
+        # elif(self.mvHandler.lower() == 'knn'):
+        #     print("your reached KNN. If this is written code is fine")
+        #     return self.NearestNeighborsImputation(dataset, requiredDailyMeasures)
+        # else:
+        #     raise ValueError("mdHandler must be 'Remove' or 'KNN'")
 
 
 
