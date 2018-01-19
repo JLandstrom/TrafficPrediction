@@ -1,6 +1,6 @@
 
 import pandas as pd
-
+import numpy as np
 #Class for handling time series data in form of data provided by Traffikverket in Sweden
 
 #Preprocessing steps:
@@ -10,69 +10,96 @@ import pandas as pd
 
 #Possible adds for a better preprocessing:
 #add settings on random individual points or collection of points. Add threshold when to do what
+import scipy.cluster
+from sklearn.cluster import AgglomerativeClustering
+
 
 class TrafficPreprocessor():
     """
     Class for preprocessing traffic time series data
+    Class for preprocessing traffic time series data
     instance variables:
-    mdHandler: Handler of missing data {'Remove', 'KNN'}
+    mdHandler: Handler of missing data {'linear', 'knn'}
     """
-    def __init__(self, mdHandler = 'Remove'):
-        self.mvHandler = mdHandler
+    def __init__(self, mdHandler = 'knn'):
+        self.mdHandler = mdHandler
 
     """
     
     """
-    def RemoveDaysWithMissingData(self, dataset, requiredDailyMeasures):
-        dataset['Timestamp'] = pd.to_datetime(dataset['Timestamp'])
-        dataFrame = dataset[dataset['VehicleClassID'] == 0].groupby(['Timestamp'])['NoVehicles'].sum()
-        measureFrequencies = dataFrame.groupby(dataFrame.index.date).count()
-        dates = []
-        print("Preprocessing starts")
-        for index in measureFrequencies.index:
-            if measureFrequencies[index] >= requiredDailyMeasures:
-                dates.append(index)
-        print("Preprocessing done")
-        indices = [x.date() in dates for x in dataset['Timestamp']]
-        return dataset[indices]
+    def LinearImputation(self, dataframe):
+        return dataframe.interpolate(method='linear')
 
-
-
-
-    def NearestNeighborsImputation(self, dataset, requiredDailyMeasures):
-        pass
+    def NearestNeighborsImputation(self, dataframe):
+        return dataframe.interpolate(method='nearest')
 
     """
-    Method 
+    Preprocesses dataset by accumulating into intervals and imputating missing values
+    
+    Parameters:
+    Required
+    dataset: dataframe holding data
+    
+    Optional
+    vehicleClasses: List of integers. Defines what vehicleclasses are to be handled. Empty list means handling all classes
+    filePath: string. If given, accumulated and preprocessed dataset is printed.
+    interval: string. Accumulation interval.
     """
-    def PreProcess(self, dataset, vehicleClasses=[], filePath=""):
+    def PreProcess(self, dataset, vehicleClasses=[], filePath="", interval="5T"):
         dataset['Timestamp'] = pd.to_datetime(dataset['Timestamp'])
 
         if(vehicleClasses == []):
             pass
 
-        dataFrame = dataset[dataset['VehicleClassID'] == 0]
-        dataFrame = dataFrame[['Timestamp', 'Flow', 'NoVehicles']].groupby(
+        dataframe = dataset[dataset['VehicleClassID'] == 0]
+        dataframe = dataframe[['Timestamp', 'Flow', 'NoVehicles']].groupby(
             ['Timestamp']).sum()
-        dataFrame = dataFrame.resample("5T").mean()
+        dataframe = dataframe.resample(interval).sum()
 
-        if(filePath != ""):
-            dataFrame.to_csv(filePath, sep=";", index=True)
+        if(self.mdHandler == 'knn'):
+            newDataframe = self.NearestNeighborsImputation(dataframe)
+        elif(self.mdHandler == 'linear'):
+            newDataframe = self.LinearImputation(dataframe)
+        else:
+            raise ValueError("mvHandler value not valid. Must be in {'knn', 'linear'}")
 
-        return dataFrame
+        if (filePath != ""):
+            newDataframe.to_csv(filePath, sep=";", index=True)
 
-        #start with validation of argument
-        # if(isinstance(requiredDailyMeasures, int) == False or requiredDailyMeasures < 1):
-        #     raise ValueError("TimeIntervalOfMeasure must be of type integer and above 0.")
-        #
-        # if(self.mvHandler.lower() == 'remove'):
-        #     print("your reached removed. If this is written code is fine")
-        #     return self.RemoveDaysWithMissingData(dataset, requiredDailyMeasures)
-        # elif(self.mvHandler.lower() == 'knn'):
-        #     print("your reached KNN. If this is written code is fine")
-        #     return self.NearestNeighborsImputation(dataset, requiredDailyMeasures)
-        # else:
-        #     raise ValueError("mdHandler must be 'Remove' or 'KNN'")
+        #newDataframe['Timestamp'] = newDataframe.index.astype(np.int64)
+        return newDataframe
+
+    """
+    Applies agglomerative clustering to dataset
+    
+    Parameters:
+    Required
+    dataset: dataframe holding data
+    noOfClusters: Integer. How many clusters are to be created
+    
+    Optional
+    type: String. Specifies if clustering is performed on time during day or days during week {'day', 'week'}.
+    """
+    def Cluster(self, dataset):
+        # clusters based on visual inspection of jan 22
+        # morning < 06:00
+        # preLunch >= 06:00 < 9:00
+        # postLunch >= 09:00 < 14:00
+        # afternoon >= 14:00 < 18:00
+        # evening >= 18:00
+        dataset['Date'] = pd.to_datetime(dataset.index)
+        dataset['Category'] = ['dawn' if time.time() < pd.datetime(2014,1,1,7,30).time()
+                               else 'morning' if ((time.time() >= pd.datetime(2014,1,1,7,30).time()) & (time.time() < pd.datetime(2014,1,1,10,0).time()))
+                               else 'lunch' if ((time.time() >= pd.datetime(2014,1,1,10,0).time()) & (time.time() < pd.datetime(2014,1,1,14,0).time()))
+                               else 'afternoon' if((time.time() >= pd.datetime(2014,1,1,14,0).time()) & (time.time() < pd.datetime(2014,1,1,17,0).time()))
+                               else 'dusk' for time in dataset['Date']]
+
+        newFrame = dataset.set_index(['Date','Category'])
+
+        #with pd.option_context('display.max_rows', None, 'display.max_columns', 3):
+            #print(newFRame)
+        return newFrame
+
 
 
 

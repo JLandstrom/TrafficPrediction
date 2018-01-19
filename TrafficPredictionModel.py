@@ -1,14 +1,17 @@
-from datetime import datetime
 
-import matplotlib
-import pandas as pd
-import matplotlib.pyplot as plt
-import sys, getopt
-import TrafficPreprocessor
-import FileHandler
-import scipy.stats as stats
+import getopt
+import sys
+import math
 import numpy as np
-from pandas.plotting import lag_plot
+import matplotlib.pyplot as plt
+import pandas as pd
+from pandas.plotting import autocorrelation_plot
+from sklearn.metrics import mean_squared_error
+from statsmodels.tsa.arima_model import ARIMA
+
+
+import FileHandler
+import TrafficPreprocessor
 
 
 sys._enablelegacywindowsfsencoding()
@@ -18,6 +21,7 @@ sys._enablelegacywindowsfsencoding()
 allColumns = ["DetectorID", "VehicleClassID", "Timestamp", "Flow", "Speed", "Occupancy", "Confidence", "Tdiff",
               "TimeCycle", "NoVehicles", "Headway", "MeasuresIncluded"]
 selectedColumns = ["DetectorID", "VehicleClassID", "Timestamp", "Flow", "NoVehicles"]
+clusters = ['dawn', 'morning', 'lunch','afternoon','dusk']
 
 """General variables"""
 detectorIds = []
@@ -56,7 +60,7 @@ def main(argv):
 
 
 # Shall be moved to its own class
-def PlotDetectorData(dataFrame):
+def  PlotDetectorData(dataFrame):
     dataFrame['Timestamp'] = pd.to_datetime(dataFrame['Timestamp'])
     dataFrame = dataFrame[dataFrame['VehicleClassID'] == 0].groupby(['Timestamp'])['NoVehicles'].sum()
     #dataFrame = dataFrame.groupby(dataFrame.index.map(lambda t: t.day)).sum()
@@ -64,21 +68,72 @@ def PlotDetectorData(dataFrame):
     dataFrame.plot()
     plt.show()
 
-def PlotDistribution(dataset):
-    dataset['Timestamp'] = pd.to_datetime(dataFrame['Timestamp'])
-    dataset = dataFrame[dataFrame['VehicleClassID'] == 0].groupby(['Timestamp'])['NoVehicles'].sum()
-    frequencies = dataset.groupby(dataset.index.date).count()
-    frequencies = frequencies.sort_values()
-    print(frequencies)
-    mean = frequencies.mean()
-    std = frequencies.std()
-    print("std: " + repr(std))
-    print("mean: " + repr(mean))
+def plotClusters(dataset, clusters, date=None):
+    if(date==None):
+        filteredFrame = dataset
+    else:
+        filteredFrame = dataset.xs(date,level=0,drop_level=False)
 
-    fit = stats.norm.pdf(frequencies, mean, std)  # this is a fitting indeed
-    plt.plot(frequencies, fit, '-o')
-    plt.hist(frequencies, normed=True)  # use this to draw histogram of your data
+    for cluster in clusters:
+        clusterFrame = filteredFrame.xs(cluster,level=2,drop_level=False)
+        with pd.option_context('display.max_rows', None, 'display.max_columns', 3):
+            print(clusterFrame)
+        clusterFrame.plot(y='NoVehicles')
+        plt.title(cluster)
+        plt.show()
+        autocorrelation_plot(clusterFrame)
+        plt.title(cluster)
+        plt.show()
+
+def TrainArimaWholeSet(dataset):
+    morningData = dataset.xs('morning', level=1, drop_level=True)
+    print(morningData)
+    model = ARIMA(morningData, order=(5, 1, 0))
+    model_fit = model.fit(disp=0)
+    print(model_fit.summary())
+    # plot residual errors
+    residuals = pd.DataFrame(model_fit.resid)
+    residuals.plot()
     plt.show()
+    residuals.plot(kind='kde')
+    plt.show()
+    print(residuals.describe())
+
+def mean_absolute_percentage_error(y_true, y_pred):
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+
+def ArimaForecasting(dataset):
+
+    for cluster in clusters:
+        clusterFrame = dataset.xs(cluster, level=1, drop_level=True)
+        train = clusterFrame[clusterFrame.index.date <= pd.datetime(2014,1,29).date()].values
+        test = clusterFrame[clusterFrame.index.date > pd.datetime(2014,1,29).date()].values
+        history = [x[0] for x in train]
+        predictions = list()
+        for t in range(len(test)):
+            model = ARIMA(history, order=(5,1,0))
+            model_fit = model.fit(disp=0)
+            output = model_fit.forecast()
+            yhat = output[0]
+            predictions.append(yhat)
+            obs = test[t]
+            history.append(obs)
+            #print('predicted=%f, expected=%f' % (yhat, obs))
+        error = math.sqrt(mean_squared_error(test, predictions))
+        mape = mean_absolute_percentage_error(test, predictions)
+        print(cluster)
+        print('Test RMSE: %.3f' % error)
+        print('Test MAPE: %.3f ' % mape)
+        plt.plot(test)
+        plt.plot(predictions, color='red')
+        plt.show()
+        #
+        # with pd.option_context('display.max_rows', None, 'display.max_columns', 3):
+        #     print(train)
+        #     print(test)
+        #     print('klar')
+
 
 """Creates filename for output file"""
 
@@ -92,7 +147,7 @@ if __name__ == "__main__":
     main(sys.argv[1:])
     outputFile = CreateCsvFilePath("data_detectorId", detectorIds)
     fileHandler = FileHandler.CsvTrafficDataHandler(inputfile, outputFile, allColumns)
-    preprocessor = TrafficPreprocessor.TrafficPreprocessor()
+    preprocessor = TrafficPreprocessor.TrafficPreprocessor(mdHandler='linear')
     if shouldRead:
         result = fileHandler.ReadFile(detectorIds)
         if result:
@@ -101,18 +156,22 @@ if __name__ == "__main__":
     else:
         dataset = dataFrame = pd.read_csv(outputFile, sep=";", decimal=",", encoding="utf-8", header=0, low_memory=False)
 
-    dataset = preprocessor.PreProcess(dataset, filePath=CreateCsvFilePath("Aggregated5MinIntervals", detectorIds))
 
-    # dfNans = dataset[dataset.isnull()].index
-    # print(dfNans)
-    # print(dataset)
-    #print(dataset)
-    #fileHandler.dataset = dataset
-    #fileHandler.WriteFile([])
-    #CheckCorrectNumberOfMeasurements(dataset)
-    #PlotDetectorData(dataset)
-    #if shouldPlot:
-        #PlotDetectorData(dataset)
+
+    dataset = preprocessor.PreProcess(dataset, filePath=CreateCsvFilePath("Aggregated5MinIntervals", detectorIds))
+    dataset = preprocessor.Cluster(dataset)
+    ArimaForecasting(dataset)
+    # plotClusters(dataset, clusters, pd.datetime(2014,1,22).date())
+
+
+    # morningData['Timestamp'] = [pd.to_datetime(x.year, x.month, x.day, y.hour, y.minute, y.second) for x,y,z in morningData.index]
+    #         dataset.index <= pd.datetime(2014, 1, 22, 23, 59, 59)))]
+
+    # flowOnADay.plot(y='NoVehicles')
+    # plt.show()
+    # autocorrelation_plot(flowOnADay)
+    # plt.show()
+
 
 
 
