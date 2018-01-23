@@ -45,7 +45,7 @@ class TrafficPreprocessor():
     filePath: string. If given, accumulated and preprocessed dataset is printed.
     interval: string. Accumulation interval.
     """
-    def PreProcess(self, dataset, vehicleClasses=[], filePath="", interval="5T"):
+    def PreProcess(self, dataset, vehicleClasses=[], filePath="", interval="5T", threshold=None):
         dataset['Timestamp'] = pd.to_datetime(dataset['Timestamp'])
 
         if(vehicleClasses == []):
@@ -54,6 +54,7 @@ class TrafficPreprocessor():
         dataframe = dataset[dataset['VehicleClassID'] == 0]
         dataframe = dataframe[['Timestamp', 'Flow', 'NoVehicles']].groupby(
             ['Timestamp']).sum()
+
         dataframe = dataframe.resample(interval).sum()
 
         if(self.mdHandler == 'knn'):
@@ -101,5 +102,19 @@ class TrafficPreprocessor():
         return newFrame
 
 
+    def RemoveDays(self, dataFrame, threshold):
+        dataFrame['Timestamp'] = pd.to_datetime(dataFrame['Timestamp'])
+        dataFrame = dataFrame[dataFrame["VehicleClassID"] == 0]
+        dataFrame = dataFrame[["NoVehicles","Timestamp"]].groupby(["Timestamp"]).sum()
+        #dataFrame = dataFrame[dataFrame['VehicleClassID'] == 0].groupby(['Timestamp'])['NoVehicles'].sum()
+        temp = dataFrame.groupby(dataFrame.index.date).count()
+        temp.columns = ["NoMeasurements"]
 
+        removeDates = []
+        # for index, row in temp.iterrows():
+        #     if row['NoMeasurements'] < threshold:
+        #         removeDates.append(index)
 
+        removeDates2 = [index for index,row in temp.iterrows() if row['NoMeasurements'] < threshold]
+        booleans = [False if index.date() in removeDates2 else True for index in dataFrame.index]
+        return dataFrame[booleans]
