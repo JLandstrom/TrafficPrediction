@@ -46,19 +46,27 @@ class TrafficPreprocessor():
     interval: string. Accumulation interval.
     """
     def PreProcess(self, dataset, vehicleClasses=[], filePath="", intervalInMinutes=5, threshold=None):
-        dataset['Timestamp'] = pd.to_datetime(dataset['Timestamp'])
+        if (vehicleClasses == []):
+            pass
 
         intervalString = repr(intervalInMinutes) +"T"
-        if(vehicleClasses == []):
-            pass
+
+        datesToBeRemoved = []
+        if threshold != None:
+            datesToBeRemoved = self.RemoveDays(dataset, threshold)
+
+        dataset['Timestamp'] = pd.to_datetime(dataset['Timestamp'])
 
         dataframe = dataset[dataset['VehicleClassID'] == 0]
         dataframe = dataframe[['Timestamp', 'NoVehicles']].groupby(
             ['Timestamp']).sum()
 
-        dataframe = dataframe.resample(intervalString).mean()
-        print(dataframe)
-        dataframe['NoVehicles'] = pd.to_numeric(dataframe['NoVehicles']*intervalInMinutes, downcast='integer')
+        dataframe = dataframe.resample(intervalString).sum()
+        if datesToBeRemoved != []:
+            booleans = [False if index.date() in datesToBeRemoved else True for index in dataframe.index]
+            dataframe = dataframe[booleans]
+
+        dataframe['NoVehicles'] = pd.to_numeric(dataframe['NoVehicles'] * intervalInMinutes, downcast='integer')
         dataframe['NoVehicles'] = dataframe['NoVehicles'].round()
 
         if(self.mdHandler == 'knn'):
@@ -87,11 +95,11 @@ class TrafficPreprocessor():
     """
     def Cluster(self, dataset):
         # clusters based on visual inspection of jan 22
-        # morning < 06:00
-        # preLunch >= 06:00 < 9:00
-        # postLunch >= 09:00 < 14:00
-        # afternoon >= 14:00 < 18:00
-        # evening >= 18:00
+        # dawn < 07:30
+        # morning >= 07:30 < 10:00
+        # lunch >= 10:00 < 14:00
+        # afternoon >= 14:00 < 17:00
+        # dusk >= 17:00
         dataset['Date'] = pd.to_datetime(dataset.index)
         dataset['Category'] = ['dawn' if time.time() < pd.datetime(2014,1,1,7,30).time()
                                else 'morning' if ((time.time() >= pd.datetime(2014,1,1,7,30).time()) & (time.time() < pd.datetime(2014,1,1,10,0).time()))
@@ -120,5 +128,5 @@ class TrafficPreprocessor():
         #         removeDates.append(index)
 
         removeDates2 = [index for index,row in temp.iterrows() if row['NoMeasurements'] < threshold]
-        booleans = [False if index.date() in removeDates2 else True for index in dataFrame.index]
-        return dataFrame[booleans]
+        #booleans = [False if index.date() in removeDates2 else True for index in dataFrame.index]
+        return removeDates2
