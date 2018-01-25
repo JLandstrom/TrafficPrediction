@@ -157,8 +157,8 @@ if __name__ == "__main__":
         dataset = dataFrame = pd.read_csv(outputFile, sep=";", decimal=",", encoding="utf-8", header=0, low_memory=False)
 
 
-    dataset = preprocessor.RemoveDays(dataset, 1000)
-    dataset = preprocessor.PreProcess(dataset, filePath=CreateCsvFilePath("Aggregated5MinIntervals", detectorIds))
+    #dataset = preprocessor.RemoveDays(dataset, 1000)
+    dataset = preprocessor.PreProcess(dataset, filePath=CreateCsvFilePath("Aggregated5MinIntervals", detectorIds),threshold=1000)
     dataset = preprocessor.Cluster(dataset)
     ArimaForecasting(dataset)
     # plotClusters(dataset, clusters, pd.datetime(2014,1,22).date())
