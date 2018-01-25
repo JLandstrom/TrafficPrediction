@@ -8,11 +8,12 @@ import pandas as pd
 from pandas.plotting import autocorrelation_plot
 from sklearn.metrics import mean_squared_error
 from statsmodels.tsa.arima_model import ARIMA
+from statsmodels.tsa.stattools import adfuller, acf, pacf
 
 
 import FileHandler
 import TrafficPreprocessor
-
+import CorrelationExperimenter
 
 sys._enablelegacywindowsfsencoding()
 
@@ -75,15 +76,19 @@ def plotClusters(dataset, clusters, date=None):
         filteredFrame = dataset.xs(date,level=0,drop_level=False)
 
     for cluster in clusters:
-        clusterFrame = filteredFrame.xs(cluster,level=2,drop_level=False)
+        clusterFrame = filteredFrame.xs(cluster,level=1,drop_level=False)
         with pd.option_context('display.max_rows', None, 'display.max_columns', 3):
             print(clusterFrame)
         clusterFrame.plot(y='NoVehicles')
         plt.title(cluster)
         plt.show()
-        autocorrelation_plot(clusterFrame)
-        plt.title(cluster)
+        acf(clusterFrame.values)
+        plt.title(cluster + " acf")
         plt.show()
+        pacf(clusterFrame.values)
+        plt.title(cluster + " pacf")
+        plt.show()
+
 
 def TrainArimaWholeSet(dataset):
     morningData = dataset.xs('morning', level=1, drop_level=True)
@@ -112,14 +117,14 @@ def ArimaForecasting(dataset):
         history = [x[0] for x in train]
         predictions = list()
         for t in range(len(test)):
-            model = ARIMA(history, order=(5,1,0))
+            model = ARIMA(history, order=(2,1,1))
             model_fit = model.fit(disp=0)
             output = model_fit.forecast()
             yhat = output[0]
             predictions.append(yhat)
             obs = test[t]
             history.append(obs)
-            #print('predicted=%f, expected=%f' % (yhat, obs))
+            print('predicted=%f, expected=%f' % (yhat, obs))
         error = math.sqrt(mean_squared_error(test, predictions))
         mape = mean_absolute_percentage_error(test, predictions)
         print(cluster)
@@ -127,6 +132,7 @@ def ArimaForecasting(dataset):
         print('Test MAPE: %.3f ' % mape)
         plt.plot(test)
         plt.plot(predictions, color='red')
+        plt.title(cluster)
         plt.show()
         #
         # with pd.option_context('display.max_rows', None, 'display.max_columns', 3):
@@ -156,12 +162,16 @@ if __name__ == "__main__":
     else:
         dataset = dataFrame = pd.read_csv(outputFile, sep=";", decimal=",", encoding="utf-8", header=0, low_memory=False)
 
-
-    dataset = preprocessor.RemoveDays(dataset, 1000)
     dataset = preprocessor.PreProcess(dataset, filePath=CreateCsvFilePath("Aggregated5MinIntervals", detectorIds))
     dataset = preprocessor.Cluster(dataset)
+
+
+    acexp = CorrelationExperimenter.CorrelationExperimenter(dataset, clusters)
+    #acexp.PlotCorrelations(dataset)
+    #df = acexp.DifferenceData(nonSeasonal=1)
+    #acexp.PlotCorrelations(df)
     ArimaForecasting(dataset)
-    # plotClusters(dataset, clusters, pd.datetime(2014,1,22).date())
+    #plotClusters(dataset, clusters)
 
 
     # morningData['Timestamp'] = [pd.to_datetime(x.year, x.month, x.day, y.hour, y.minute, y.second) for x,y,z in morningData.index]
@@ -179,3 +189,9 @@ if __name__ == "__main__":
 # - how specific should the model be? Working against a general dataset or can we make a specific implementation towards traffikverkets dataset?
 # - Make assumption that we have enough data (always) for historical imputation?
 # - How to handle single measurement. normal number of measuremen 1300-1436
+
+
+# dataset['Timestamp'] = pd.to_datetime(dataset['Timestamp'])
+# dataFrame = dataset[dataset['VehicleClassID'] == 0].groupby(['Timestamp'])['NoVehicles'].sum()
+# print(dataFrame.index.date)
+# print(dataFrame.groupby(dataFrame.index.date).count())

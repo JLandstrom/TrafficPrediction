@@ -45,17 +45,21 @@ class TrafficPreprocessor():
     filePath: string. If given, accumulated and preprocessed dataset is printed.
     interval: string. Accumulation interval.
     """
-    def PreProcess(self, dataset, vehicleClasses=[], filePath="", interval="5T", threshold=None):
+    def PreProcess(self, dataset, vehicleClasses=[], filePath="", intervalInMinutes=5, threshold=None):
         dataset['Timestamp'] = pd.to_datetime(dataset['Timestamp'])
 
+        intervalString = repr(intervalInMinutes) +"T"
         if(vehicleClasses == []):
             pass
 
         dataframe = dataset[dataset['VehicleClassID'] == 0]
-        dataframe = dataframe[['Timestamp', 'Flow', 'NoVehicles']].groupby(
+        dataframe = dataframe[['Timestamp', 'NoVehicles']].groupby(
             ['Timestamp']).sum()
 
-        dataframe = dataframe.resample(interval).sum()
+        dataframe = dataframe.resample(intervalString).mean()
+        print(dataframe)
+        dataframe['NoVehicles'] = pd.to_numeric(dataframe['NoVehicles']*intervalInMinutes, downcast='integer')
+        dataframe['NoVehicles'] = dataframe['NoVehicles'].round()
 
         if(self.mdHandler == 'knn'):
             newDataframe = self.NearestNeighborsImputation(dataframe)
