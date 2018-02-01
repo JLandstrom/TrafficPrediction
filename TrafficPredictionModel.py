@@ -23,6 +23,7 @@ allColumns = ["DetectorID", "VehicleClassID", "Timestamp", "Flow", "Speed", "Occ
               "TimeCycle", "NoVehicles", "Headway", "MeasuresIncluded"]
 selectedColumns = ["DetectorID", "VehicleClassID", "Timestamp", "Flow", "NoVehicles"]
 clusters = ['dawn', 'morning', 'lunch','afternoon','dusk']
+dayType = ['weekday', 'weekend']
 
 """General variables"""
 detectorIds = []
@@ -93,7 +94,7 @@ def plotClusters(dataset, clusters, date=None):
 def TrainArimaWholeSet(dataset):
     morningData = dataset.xs('morning', level=1, drop_level=True)
     print(morningData)
-    model = ARIMA(morningData, order=(5, 1, 0))
+    model = ARIMA(morningData, order=(2, 1, 1))
     model_fit = model.fit(disp=0)
     print(model_fit.summary())
     # plot residual errors
@@ -117,7 +118,7 @@ def ArimaForecasting(dataset):
         history = [x[0] for x in train]
         predictions = list()
         for t in range(len(test)):
-            model = ARIMA(history, order=(2,1,1))
+            model = ARIMA(history, order=(5,1,0))
             model_fit = model.fit(disp=0)
             output = model_fit.forecast()
             yhat = output[0]
@@ -164,15 +165,16 @@ if __name__ == "__main__":
 
 
     #dataset = preprocessor.RemoveDays(dataset, 1000)
-    dataset = preprocessor.PreProcess(dataset, filePath=CreateCsvFilePath("Aggregated5MinIntervals", detectorIds),threshold=1000)
+    dataset = preprocessor.PreProcess(dataset, filePath=CreateCsvFilePath("Aggregated5MinIntervals", detectorIds), threshold=1000)
     dataset = preprocessor.Cluster(dataset)
+    dataset2 = preprocessor.Filter(dataset, 'weekday', 2, True)
+    #dataset2 = preprocessor.Filter(dataset2, 'dusk', 1, True)
 
-
-    acexp = CorrelationExperimenter.CorrelationExperimenter(dataset, clusters)
+    #acexp = CorrelationExperimenter.CorrelationExperimenter(dataset, clusters)
     #acexp.PlotCorrelations(dataset)
     #df = acexp.DifferenceData(nonSeasonal=1)
     #acexp.PlotCorrelations(df)
-    ArimaForecasting(dataset)
+    ArimaForecasting(dataset2)
     #plotClusters(dataset, clusters)
 
 

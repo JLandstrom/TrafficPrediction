@@ -66,6 +66,8 @@ class TrafficPreprocessor():
             booleans = [False if index.date() in datesToBeRemoved else True for index in dataframe.index]
             dataframe = dataframe[booleans]
 
+        #dataframe = dataframe[dataframe.index.dayofweek < 5]
+
         dataframe['NoVehicles'] = pd.to_numeric(dataframe['NoVehicles'] * intervalInMinutes, downcast='integer')
         dataframe['NoVehicles'] = dataframe['NoVehicles'].round()
 
@@ -93,7 +95,7 @@ class TrafficPreprocessor():
     Optional
     type: String. Specifies if clustering is performed on time during day or days during week {'day', 'week'}.
     """
-    def Cluster(self, dataset):
+    def Cluster(self, dataset, sortCategory=True, sortDayType=True):
         # clusters based on visual inspection of jan 22
         # dawn < 07:30
         # morning >= 07:30 < 10:00
@@ -101,17 +103,21 @@ class TrafficPreprocessor():
         # afternoon >= 14:00 < 17:00
         # dusk >= 17:00
         dataset['Date'] = pd.to_datetime(dataset.index)
-        dataset['Category'] = ['dawn' if time.time() < pd.datetime(2014,1,1,7,30).time()
+        columnList = ['Date']
+        if(sortCategory):
+            dataset['Category'] = ['dawn' if time.time() < pd.datetime(2014,1,1,7,30).time()
                                else 'morning' if ((time.time() >= pd.datetime(2014,1,1,7,30).time()) & (time.time() < pd.datetime(2014,1,1,10,0).time()))
                                else 'lunch' if ((time.time() >= pd.datetime(2014,1,1,10,0).time()) & (time.time() < pd.datetime(2014,1,1,14,0).time()))
                                else 'afternoon' if((time.time() >= pd.datetime(2014,1,1,14,0).time()) & (time.time() < pd.datetime(2014,1,1,17,0).time()))
                                else 'dusk' for time in dataset['Date']]
+            columnList.append('Category')
 
-        newFrame = dataset.set_index(['Date','Category'])
+        if(sortDayType):
+            dataset['DayType'] = ['weekday' if day.dayofweek < 5
+                               else 'weekend' for day in dataset['Date']]
+            columnList.append('DayType')
 
-        #with pd.option_context('display.max_rows', None, 'display.max_columns', 3):
-            #print(newFRame)
-        return newFrame
+        return dataset.set_index(columnList)
 
 
     def RemoveDays(self, dataFrame, threshold):
@@ -130,3 +136,7 @@ class TrafficPreprocessor():
         removeDates2 = [index for index,row in temp.iterrows() if row['NoMeasurements'] < threshold]
         #booleans = [False if index.date() in removeDates2 else True for index in dataFrame.index]
         return removeDates2
+
+    # dataframe = dataframe[dataframe.index.dayofweek < 5]
+    def Filter(self, dataFrame, arg, level, dropLevel=True):
+        return dataFrame.xs(arg,level=level,drop_level=dropLevel)
