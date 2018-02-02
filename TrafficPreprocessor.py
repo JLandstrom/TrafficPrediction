@@ -61,7 +61,7 @@ class TrafficPreprocessor():
         dataframe = dataframe[['Timestamp', 'NoVehicles']].groupby(
             ['Timestamp']).sum()
 
-        dataframe = dataframe.resample(intervalString).sum()
+        dataframe = dataframe.resample(intervalString).mean()
         if datesToBeRemoved != []:
             booleans = [False if index.date() in datesToBeRemoved else True for index in dataframe.index]
             dataframe = dataframe[booleans]
@@ -95,7 +95,7 @@ class TrafficPreprocessor():
     Optional
     type: String. Specifies if clustering is performed on time during day or days during week {'day', 'week'}.
     """
-    def Cluster(self, dataset, sortCategory=True, sortDayType=True):
+    def Cluster(self, dataset, sortCategory=True, methodDictionaries = None, sortDayType=True):
         # clusters based on visual inspection of jan 22
         # dawn < 07:30
         # morning >= 07:30 < 10:00
@@ -104,12 +104,21 @@ class TrafficPreprocessor():
         # dusk >= 17:00
         dataset['Date'] = pd.to_datetime(dataset.index)
         columnList = ['Date']
-        if(sortCategory):
-            dataset['Category'] = ['dawn' if time.time() < pd.datetime(2014,1,1,7,30).time()
-                               else 'morning' if ((time.time() >= pd.datetime(2014,1,1,7,30).time()) & (time.time() < pd.datetime(2014,1,1,10,0).time()))
-                               else 'lunch' if ((time.time() >= pd.datetime(2014,1,1,10,0).time()) & (time.time() < pd.datetime(2014,1,1,14,0).time()))
-                               else 'afternoon' if((time.time() >= pd.datetime(2014,1,1,14,0).time()) & (time.time() < pd.datetime(2014,1,1,17,0).time()))
-                               else 'dusk' for time in dataset['Date']]
+        if sortCategory & (methodDictionaries != None):
+            categories = []
+            for time in dataset['Date']:
+                for cluster, method in methodDictionaries.items():
+                    if method(time.time()):
+                        categories.append(cluster)
+                        break
+            dataset['Category'] = categories
+            if dataset.shape[0] != len(dataset['Category']):
+                raise ValueError('All Time Series instances does not fit given categories')
+        #     dataset['Category'] = ['dawn' if time.time() < pd.datetime(2014,1,1,7,30).time()
+        #                        else 'morning' if ((time.time() >= pd.datetime(2014,1,1,7,30).time()) & (time.time() < pd.datetime(2014,1,1,10,0).time()))
+        #                        else 'lunch' if ((time.time() >= pd.datetime(2014,1,1,10,0).time()) & (time.time() < pd.datetime(2014,1,1,14,0).time()))
+        #                        else 'afternoon' if((time.time() >= pd.datetime(2014,1,1,14,0).time()) & (time.time() < pd.datetime(2014,1,1,17,0).time()))
+        #                        else 'dusk' for time in dataset['Date']]
             columnList.append('Category')
 
         if(sortDayType):

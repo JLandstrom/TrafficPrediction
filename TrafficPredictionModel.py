@@ -109,32 +109,29 @@ def mean_absolute_percentage_error(y_true, y_pred):
     y_true, y_pred = np.array(y_true), np.array(y_pred)
     return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
 
-def ArimaForecasting(dataset):
-
-    for cluster in clusters:
-        clusterFrame = dataset.xs(cluster, level=1, drop_level=True)
-        train = clusterFrame[clusterFrame.index.date <= pd.datetime(2014,1,29).date()].values
-        test = clusterFrame[clusterFrame.index.date > pd.datetime(2014,1,29).date()].values
-        history = [x[0] for x in train]
-        predictions = list()
-        for t in range(len(test)):
-            model = ARIMA(history, order=(5,1,0))
-            model_fit = model.fit(disp=0)
-            output = model_fit.forecast()
-            yhat = output[0]
-            predictions.append(yhat)
-            obs = test[t]
-            history.append(obs)
-            print('predicted=%f, expected=%f' % (yhat, obs))
-        error = math.sqrt(mean_squared_error(test, predictions))
-        mape = mean_absolute_percentage_error(test, predictions)
-        print(cluster)
-        print('Test RMSE: %.3f' % error)
-        print('Test MAPE: %.3f ' % mape)
-        plt.plot(test)
-        plt.plot(predictions, color='red')
-        plt.title(cluster)
-        plt.show()
+def ArimaForecasting(clusterFrame, predictionLags=1):
+    train = clusterFrame[clusterFrame.index.date <= pd.datetime(2014,1,29).date()].values
+    test = clusterFrame[clusterFrame.index.date > pd.datetime(2014,1,29).date()].values
+    history = [x[0] for x in train]
+    predictions = list()
+    for t in range(len(test)):
+        model = ARIMA(history, order=(5,1,0))
+        model_fit = model.fit(disp=0)
+        output = model_fit.forecast()
+        yhat = output[0]
+        predictions.append(yhat)
+        obs = test[t]
+        history.append(obs)
+        print('predicted=%f, expected=%f' % (yhat, obs))
+    error = math.sqrt(mean_squared_error(test, predictions))
+    mape = mean_absolute_percentage_error(test, predictions)
+    print(cluster)
+    print('Test RMSE: %.3f' % error)
+    print('Test MAPE: %.3f ' % mape)
+    plt.plot(test)
+    plt.plot(predictions, color='red')
+    plt.title(cluster)
+    plt.show()
         #
         # with pd.option_context('display.max_rows', None, 'display.max_columns', 3):
         #     print(train)
@@ -150,6 +147,31 @@ def CreateCsvFilePath(fileName, additions=[]):
         outputFile += "_" + str(addition)
     return outputFile + ".csv"
 
+def GetLagParam(cluster):
+    if cluster == 'dawn':
+        return 90;
+    if cluster == 'morning':
+        return 30;
+    if cluster == 'lunch':
+        return 48;
+    if cluster == 'afternoon':
+        return 36;
+    if cluster == 'dusk':
+        return 84;
+
+def morningrush(time):
+    return ((time >= pd.datetime(1,1,1,6,).time()) & (time < pd.datetime(1,1,1,9).time()))
+def afternoonrush(time):
+    return ((time >= pd.datetime(1,1,1,15,).time()) & (time < pd.datetime(1,1,1,18).time()))
+def default(time):
+    return True
+def GetClusterDict():
+    return {
+        'morningrush' : morningrush,
+        'afternoonrush' : afternoonrush,
+        'nonrush' : default
+    }, ['morningrush', 'afternoonrush', 'nonrush']
+
 if __name__ == "__main__":
     main(sys.argv[1:])
     outputFile = CreateCsvFilePath("data_detectorId", detectorIds)
@@ -163,39 +185,17 @@ if __name__ == "__main__":
     else:
         dataset = dataFrame = pd.read_csv(outputFile, sep=";", decimal=",", encoding="utf-8", header=0, low_memory=False)
 
-
-    #dataset = preprocessor.RemoveDays(dataset, 1000)
     dataset = preprocessor.PreProcess(dataset, filePath=CreateCsvFilePath("Aggregated5MinIntervals", detectorIds), threshold=1000)
-    dataset = preprocessor.Cluster(dataset)
+
+    clusterSorters = GetClusterDict()
+    dict, clusterNames = GetClusterDict()
+    dataset = preprocessor.Cluster(dataset, methodDictionaries=dict)
     dataset2 = preprocessor.Filter(dataset, 'weekday', 2, True)
-    #dataset2 = preprocessor.Filter(dataset2, 'dusk', 1, True)
 
-    #acexp = CorrelationExperimenter.CorrelationExperimenter(dataset, clusters)
-    #acexp.PlotCorrelations(dataset)
-    #df = acexp.DifferenceData(nonSeasonal=1)
-    #acexp.PlotCorrelations(df)
-    ArimaForecasting(dataset2)
-    #plotClusters(dataset, clusters)
-
-
-    # morningData['Timestamp'] = [pd.to_datetime(x.year, x.month, x.day, y.hour, y.minute, y.second) for x,y,z in morningData.index]
-    #         dataset.index <= pd.datetime(2014, 1, 22, 23, 59, 59)))]
-
-    # flowOnADay.plot(y='NoVehicles')
-    # plt.show()
-    # autocorrelation_plot(flowOnADay)
-    # plt.show()
-
-
-
-
-# Tutoring questions:
-# - how specific should the model be? Working against a general dataset or can we make a specific implementation towards traffikverkets dataset?
-# - Make assumption that we have enough data (always) for historical imputation?
-# - How to handle single measurement. normal number of measuremen 1300-1436
-
-
-# dataset['Timestamp'] = pd.to_datetime(dataset['Timestamp'])
-# dataFrame = dataset[dataset['VehicleClassID'] == 0].groupby(['Timestamp'])['NoVehicles'].sum()
-# print(dataFrame.index.date)
-# print(dataFrame.groupby(dataFrame.index.date).count())
+    acexp = CorrelationExperimenter.CorrelationExperimenter(dataset2,clusterNames)
+    acexp.PlotCorrelations(dataset2)
+    diffDataset = acexp.DifferenceData()
+    acexp.PlotCorrelations(diffDataset)
+    # for cluster in clusterNames:
+    #     clusterFrame = dataset2.xs(cluster, level=1, drop_level=True)
+    #     ArimaForecasting(clusterFrame)
