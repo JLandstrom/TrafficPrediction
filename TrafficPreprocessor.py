@@ -84,24 +84,7 @@ class TrafficPreprocessor():
         #newDataframe['Timestamp'] = newDataframe.index.astype(np.int64)
         return newDataframe
 
-    """
-    Applies agglomerative clustering to dataset
-    
-    Parameters:
-    Required
-    dataset: dataframe holding data
-    noOfClusters: Integer. How many clusters are to be created
-    
-    Optional
-    type: String. Specifies if clustering is performed on time during day or days during week {'day', 'week'}.
-    """
     def Cluster(self, dataset, sortCategory=True, methodDictionaries = None, sortDayType=True):
-        # clusters based on visual inspection of jan 22
-        # dawn < 07:30
-        # morning >= 07:30 < 10:00
-        # lunch >= 10:00 < 14:00
-        # afternoon >= 14:00 < 17:00
-        # dusk >= 17:00
         dataset['Date'] = pd.to_datetime(dataset.index)
         columnList = ['Date']
         if sortCategory & (methodDictionaries != None):

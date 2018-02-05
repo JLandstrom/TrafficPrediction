@@ -9,9 +9,8 @@ from statsmodels.tsa.stattools import adfuller
 
 class CorrelationExperimenter():
 
-    def __init__(self, dataset, clusters):
+    def __init__(self, dataset):
         self.dataset = dataset
-        self.clusters = clusters
 
     def DifferenceData(self, nonSeasonal=1, seasonal=None, seasonalPeriods=1):
         dataframe = diff(self.dataset,k_diff=nonSeasonal,k_seasonal_diff=seasonal, seasonal_periods=seasonalPeriods)
@@ -26,35 +25,20 @@ class CorrelationExperimenter():
         for key, value in result[4].items():
             print('\t%s: %.3f' % (key,value))
 
-    def PlotCorrelations(self, data, difference=False):
-        data.plot(title="whole set")
+    def PlotCorrelations(self, data, title, indices=None):
+        if indices == None:
+            indices = [i for i in range(len(data.values))]
+
+        plt.plot(indices, data.values)
+        plt.title(title)
+        plt.xticks(rotation=90)
+        plt.gcf().subplots_adjust(bottom=0.25)
         plt.show()
 
-        acfFrame, qstat, pvalue = acf(data.values, qstat=True)
-        print("Whole set B-J test:")
-        print(qstat)
-        print("Whole set p-value:")
-        print(pvalue)
-        plot_acf(acfFrame, title="whole set ACF")
+        acfFrame= acf(data.values)
+        plot_acf(acfFrame, title=title+' ACF')
         plt.show()
 
         pacfFrame = pacf(data.values)
-        plot_pacf(pacfFrame, title="whole set PACF")
-
-        for cluster in self.clusters:
-            clusterFrame = data.xs(cluster, level=1, drop_level=True)
-            clusterFrame.plot(title=cluster)
-            plt.show()
-
-            acfFrame, qstat, pvalue = acf(clusterFrame.values, qstat=True)
-            print("B-J test for " +cluster + ":")
-            print(qstat)
-            print("p-values for " + cluster + ":")
-            print(pvalue)
-            plot_acf(acfFrame, title=cluster + " ACF")
-            plt.show()
-
-            pacfFrame = pacf(clusterFrame.values)
-            plot_pacf(pacfFrame, title=cluster + " PACF")
-            plt.show()
-
+        plot_pacf(pacfFrame, title=title + 'PACF')
+        plt.show()
