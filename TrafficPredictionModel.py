@@ -1,4 +1,3 @@
-
 import getopt
 import sys
 import math
@@ -7,7 +6,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from pandas.plotting import autocorrelation_plot
 from sklearn.metrics import mean_squared_error
-from statsmodels.tsa.arima_model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tsa.stattools import adfuller, acf, pacf
 from statsmodels.tsa.stattools import adfuller, acf, pacf
 import matplotlib.dates as dates
 
@@ -16,6 +16,14 @@ import FileHandler
 import TrafficPreprocessor
 import CorrelationExperimenter
 
+"""
+Instructions:
+Aggregationinterval, under global variables decides in what intervals data should be aggregated.
+The value chosen affects performance and accuracy of forecast. Seasonal values are calculated automatically
+from the value chosen for aggregationinterval.
+"""
+
+#region GlobalVariables
 sys._enablelegacywindowsfsencoding()
 
 """Global variables"""
@@ -23,18 +31,20 @@ sys._enablelegacywindowsfsencoding()
 allColumns = ["DetectorID", "VehicleClassID", "Timestamp", "Flow", "Speed", "Occupancy", "Confidence", "Tdiff",
               "TimeCycle", "NoVehicles", "Headway", "MeasuresIncluded"]
 selectedColumns = ["DetectorID", "VehicleClassID", "Timestamp", "Flow", "NoVehicles"]
-clusters = ['dawn', 'morning', 'lunch','afternoon','dusk']
 dayType = ['weekday', 'weekend']
 
-"""General variables"""
+"""General variables - input to script"""
 detectorIds = []
 inputfile = ""
 shouldPlot = False
 shouldRead = False
 
-"""Methods"""
-"""Handling program arguments"""
+"""Script parameters - maybe make input variables for them"""
+aggregationinterval = 15
+#endregion
 
+"""Methods"""
+#region HandlingScriptParameters
 def toBool(arg):
     if arg.lower() == 'true':
         return True
@@ -60,103 +70,119 @@ def main(argv):
             shouldPlot = toBool(arg)
         elif opt in ("-r", "--read"):
             shouldRead = toBool(arg)
+#endregion
 
-
-# Shall be moved to its own class
-def PlotDetectorData(dataFrame):
-    dataFrame['Timestamp'] = pd.to_datetime(dataFrame['Timestamp'])
-    dataFrame = dataFrame[dataFrame['VehicleClassID'] == 0].groupby(['Timestamp'])['NoVehicles'].sum()
-    #dataFrame = dataFrame.groupby(dataFrame.index.map(lambda t: t.day)).sum()
-    #dataFrame = dataFrame.groupby(dataFrame.index.map(lambda t: t.day)).sum()
-    dataFrame.plot()
-    plt.show()
-
-def plotClusters(dataset, clusters, date=None):
-    if(date==None):
-        filteredFrame = dataset
-    else:
-        filteredFrame = dataset.xs(date,level=0,drop_level=False)
-
-    for cluster in clusters:
-        clusterFrame = filteredFrame.xs(cluster,level=1,drop_level=False)
-        with pd.option_context('display.max_rows', None, 'display.max_columns', 3):
-            print(clusterFrame)
-        clusterFrame.plot(y='NoVehicles')
-        plt.title(cluster)
-        plt.show()
-        acf(clusterFrame.values)
-        plt.title(cluster + " acf")
-        plt.show()
-        pacf(clusterFrame.values)
-        plt.title(cluster + " pacf")
-        plt.show()
-
-
-def TrainArimaWholeSet(dataset):
-    morningData = dataset.xs('morning', level=1, drop_level=True)
-    print(morningData)
-    model = ARIMA(morningData, order=(2, 1, 1))
-    model_fit = model.fit(disp=0)
-    print(model_fit.summary())
-    # plot residual errors
-    residuals = pd.DataFrame(model_fit.resid)
-    residuals.plot()
-    plt.show()
-    residuals.plot(kind='kde')
-    plt.show()
-    print(residuals.describe())
-
-def mean_absolute_percentage_error(y_true, y_pred):
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
-    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
-
-def ArimaForecasting(clusterFrame, cluster, predictionLags=1):
-    train = clusterFrame[clusterFrame.index.date <= pd.datetime(2014,1,29).date()].values
-    test = clusterFrame[clusterFrame.index.date > pd.datetime(2014,1,29).date()].values
-    train = np.array(train).flatten()
-    test = np.array(test).flatten()
-    history = [x for x in train]
-    history2 = [x for x in train]
-    predictions = list()
-    predictions2 = list()
-    for t in range(0,len(test),predictionLags):
-        model = ARIMA(history, order=(5,1,0))
-        model_fit = model.fit(disp=0)
-        output = model_fit.forecast(predictionLags)
-        yhat = output[0]
-        predictions.extend(yhat)
-        #predictions2.append(yhat)
-        obs = test[t]
-        history.append(obs)
-        #history2.append(obs)
-        # print(predictions)
-        # print(predictions2)
-        # print(history)
-        # print(history2)
-        #print('predicted=%f, expected=%f' % (yhat, obs))
-    error = math.sqrt(mean_squared_error(test, predictions))
-    mape = mean_absolute_percentage_error(test, predictions)
-    print(cluster)
-    print('Test RMSE: %.3f' % error)
-    print('Test MAPE: %.3f ' % mape)
-    plt.plot(test)
-    plt.plot(predictions, color='red')
-    plt.title(cluster)
-    plt.show()
-        #
-        # with pd.option_context('display.max_rows', None, 'display.max_columns', 3):
-        #     print(train)
-        #     print(test)
-        #     print('klar')
-
-
-"""Creates filename for output file"""
-
+#region GeneralHelperMethods
 def CreateCsvFilePath(fileName, additions=[]):
     outputFile = fileName
     for addition in additions:
         outputFile += "_" + str(addition)
     return outputFile + ".csv"
+
+def ParseDate(date):
+    return (GetWeekDay(date) + repr(date.day) + '-' + repr(date.hour) + ':' + repr(date.minute))
+#endregion
+
+#region Forecasting
+"""Forecasting"""
+def ForecastManager(dataset):
+    preProcessor = TrafficPreprocessor.TrafficPreprocessor()
+    dict, clusterNames = GetClusterDict()
+    datasetWoWeekend = preProcessor.Cluster(dataset, methodDictionaries=dict)
+    datasetWoWeekend = preprocessor.Filter(datasetWoWeekend, 'weekday', 2)
+    sLength = int(GetSeasonalLength(aggregationinterval))
+    train = datasetWoWeekend[-(11*sLength):-sLength]
+    test = datasetWoWeekend[-sLength:]
+    for cluster in clusterNames:
+        clusterTrain = preprocessor.Filter(train, cluster, 1)
+        clusterTest = preprocessor.Filter(test, cluster, 1)
+        # ArimaForeCastOnNearestNeighborsDataset(clusterTrain,clusterTest,GetOrder(cluster),GetXaxis(cluster))
+        SArimaForecasting(clusterTrain, clusterTest, cluster, sLength, len(clusterTest.index),True)
+
+def SArimaForecasting(train, test, cluster, seasonalLength, steps=1, savePredictions=False):
+    trainCopy = train
+    testCopy = test
+    train = np.array(train).flatten()
+    test = np.array(test).flatten()
+    history = [x for x in train]
+    predictions = list()
+    #SARIMA
+    for t in range(0,len(test),steps):
+        model = SARIMAX(history, order=(0,0,1),seasonal_order=(0,1,0,seasonalLength))
+        model_fit = model.fit()
+        output = model_fit.forecast(steps)
+        yhat = output
+        predictions.extend(yhat)
+        for x in range(t,steps):
+            history.append(x)
+    #HistoricalAverage
+    nnAverage = list()
+    for idx in testCopy.index:
+        NNHistory = trainCopy[trainCopy.index.time == idx.time()]
+        nnAverage.append(NNHistory['NoVehicles'].mean())
+    error = math.sqrt(mean_squared_error(test, predictions))
+    mape = mean_absolute_percentage_error(test, predictions)
+    errorHist = math.sqrt(mean_squared_error(test, predictions))
+    mapeHist = mean_absolute_percentage_error(test, nnAverage)
+    print(cluster + "SARIMA")
+    print('Test RMSE: %.3f' % error)
+    print('Test MAPE: %.3f ' % mape)
+    print(cluster + "Historical Average")
+    print('Test RMSE: %.3f' % errorHist)
+    print('Test MAPE: %.3f ' % mapeHist)
+    plt.plot(test)
+    plt.plot(predictions, color='red')
+    plt.plot(nnAverage, color='green')
+    plt.title(cluster)
+    plt.show()
+    if savePredictions:
+        predictionResult = pd.DataFrame()
+        predictionResult['RealValues'] = test
+        predictionResult['PredictionsSARIMA'] = predictions
+        predictionResult['PredictionsHist'] = nnAverage
+        predictionResult.to_csv(cluster + '_prediction_results.csv',sep=';',index=False)
+
+    def ArimaForeCastOnNearestNeighborsDataset(train, test, order, xaxis=False):
+        nnAverage = list()
+        Arima = list()
+        indices = []
+        for idx in test.index:
+            indices.append(idx.strftime('%d/%m %H:%M'))
+            Arimahistory = train[train.index.time == idx.time()]
+            NNHistory = train[train.index.time == idx.time()]
+            # Arimahistory.index = [for i in range(len(history.values))]
+
+            model = ARIMA(Arimahistory, order=order)
+            model_fit = model.fit(disp=0)
+            output = model_fit.forecast()
+
+            Arima.extend(output[0])
+            nnAverage.append(NNHistory['NoVehicles'].mean())
+        realValue = np.array(test.values).flatten()
+        errorArima = math.sqrt(mean_squared_error(realValue, Arima))
+        mapeArima = mean_absolute_percentage_error(realValue, Arima)
+        errorNN = math.sqrt(mean_squared_error(realValue, nnAverage))
+        mapeNN = mean_absolute_percentage_error(realValue, nnAverage)
+        print('Test RMSE Arima: %.3f' % errorArima)
+        print('Test MAPE Arima: %.3f ' % mapeArima)
+        print('Test RMSE NN: %.3f' % errorNN)
+        print('Test MAPE NN: %.3f ' % mapeNN)
+        plt.plot(indices, realValue)
+        plt.plot(Arima, color='red')
+        plt.plot(nnAverage, color='green')
+        plt.title("predictions 8-10 jan 30")
+        plt.xticks(rotation=90)
+        plt.gcf().subplots_adjust(bottom=0.25)
+        plt.show()
+#endregion
+
+#region ForecastHelperMethods
+def GetSeasonalLength(aggregationInterval):
+    return (60/aggregationInterval)*24
+
+def mean_absolute_percentage_error(y_true, y_pred):
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
 
 def GetLagParam(cluster):
     if cluster == 'dawn':
@@ -170,18 +196,27 @@ def GetLagParam(cluster):
     if cluster == 'dusk':
         return 84;
 
+def premorningrush(time):
+    return (time < pd.datetime(1, 1, 1, 6).time())
 def morningrush(time):
     return ((time >= pd.datetime(1,1,1,6,).time()) & (time < pd.datetime(1,1,1,9).time()))
+def middleoftheday(time):
+    return ((time >= pd.datetime(1, 1, 1, 9, ).time()) & (time < pd.datetime(1, 1, 1, 15).time()))
 def afternoonrush(time):
     return ((time >= pd.datetime(1,1,1,15,).time()) & (time < pd.datetime(1,1,1,18).time()))
+def postafternoonrush(time):
+    return (time >= pd.datetime(1,1,1,18,).time())
 def default(time):
     return True
+
 def GetClusterDict():
     return {
+        'premorningrush' : premorningrush,
         'morningrush' : morningrush,
+        'middleoftheday' : middleoftheday,
         'afternoonrush' : afternoonrush,
-        'nonrush' : default
-    }, ['morningrush', 'afternoonrush', 'nonrush']
+        'postafternoonrush' : postafternoonrush
+    }, ['premorningrush','morningrush','middleoftheday','afternoonrush', 'postafternoonrush']
 
 def GetWeekDay(date):
     if date.dayofweek == 0:
@@ -200,10 +235,23 @@ def GetWeekDay(date):
         return 'Sun '
     raise ValueError('Invalid day of week')
 
-def ParseDate(date):
-    return (GetWeekDay(date) + repr(date.day) + '-' + repr(date.hour) + ':' + repr(date.minute))
+def GetOrder(clusterName):
+    if clusterName == 'morningrush':
+        return (3,0,0)
+    if clusterName == 'afternoonrush':
+        return (3,1,0)
+    if clusterName == 'nonrush':
+        return (1,1,0)
+    raise ValueError('No Arima-parameters for given cluster')
 
+def GetXaxis(clusterName):
+    if clusterName == 'nonrush':
+        return True
+    else:
+        return False
+#endregion
 
+#region VisualizeDataForAnalyze
 def VisualizePreprocessedDataset(dataset):
     indices = [i for i in range(len(dataset.values))]
     plt.plot(indices, dataset['NoVehicles'])
@@ -223,7 +271,6 @@ def VisualizePreprocessedDataset(dataset):
     plt.plot(indices, jan22)
     plt.title('January 22')
     plt.show()
-
 
 def AnalyzeDatasetNN(dataset, date):
     preProcessor = TrafficPreprocessor.TrafficPreprocessor()
@@ -262,14 +309,13 @@ def AnalyzeDataset(dataset):
         corrExp.DickeyFullerTest(clusterFrame)
 
     #With order 1 differencing
-
     preProcessor = TrafficPreprocessor.TrafficPreprocessor()
     dict, clusterNames = GetClusterDict()
     clusteredDataset = preProcessor.Cluster(dataset, methodDictionaries=dict)
     clusteredDatasetWoWeekends = preProcessor.Filter(clusteredDataset, 'weekday', 2)
     corrExp = CorrelationExperimenter.CorrelationExperimenter(clusteredDatasetWoWeekends)
 
-    diffFrame = corrExp.DifferenceData()
+    diffFrame = corrExp.DifferenceData(nonSeasonal=1, seasonal=1,seasonalPeriods=144)
     corrExp.PlotCorrelations(diffFrame, 'Whole set with diff order 1')
     print('Dickey Fuller with diff order 1 whole set')
     corrExp.DickeyFullerTest(diffFrame)
@@ -279,68 +325,7 @@ def AnalyzeDataset(dataset):
         corrExp.PlotCorrelations(clusterFrame, cluster + ' with diff order 1')
         print('Dickey Fuller with diff order 1 ' + cluster)
         corrExp.DickeyFullerTest(clusterFrame)
-def GetOrder(clusterName):
-    if clusterName == 'morningrush':
-        return (3,0,0)
-    if clusterName == 'afternoonrush':
-        return (3,1,0)
-    if clusterName == 'nonrush':
-        return (1,1,0)
-    raise ValueError('No Arima-parameters for given cluster')
-
-def GetXaxis(clusterName):
-    if clusterName == 'nonrush':
-        return True
-    else:
-        return False
-
-def ForecastManager(dataset):
-    preProcessor = TrafficPreprocessor.TrafficPreprocessor()
-    dict, clusterNames = GetClusterDict();
-    datasetWoWeekend = preProcessor.Cluster(dataset, methodDictionaries=dict)
-    datasetWoWeekend = preprocessor.Filter(datasetWoWeekend, 'weekday', 2)
-    train = datasetWoWeekend[:len(datasetWoWeekend) - 288]
-    test = datasetWoWeekend[-288:]
-    for cluster in clusterNames:
-        clusterTrain = preprocessor.Filter(train,cluster,1)
-        clusterTest = preprocessor.Filter(test,cluster,1)
-        ArimaForeCastOnNearestNeighborsDataset(clusterTrain,clusterTest,GetOrder(cluster),GetXaxis(cluster))
-
-
-def ArimaForeCastOnNearestNeighborsDataset(train, test, order, xaxis = False):
-    nnAverage = list()
-    Arima = list()
-    indices = []
-    for idx in test.index:
-        indices.append(idx.strftime('%d/%m %H:%M'))
-        Arimahistory = train[train.index.time == idx.time()]
-        NNHistory = train[train.index.time == idx.time()]
-        # Arimahistory.index = [for i in range(len(history.values))]
-
-        model = ARIMA(Arimahistory, order=order)
-        model_fit = model.fit(disp=0)
-        output = model_fit.forecast()
-
-        Arima.extend(output[0])
-        nnAverage.append(NNHistory['NoVehicles'].mean())
-    realValue = np.array(test.values).flatten()
-    errorArima = math.sqrt(mean_squared_error(realValue, Arima))
-    mapeArima = mean_absolute_percentage_error(realValue, Arima)
-    errorNN = math.sqrt(mean_squared_error(realValue, nnAverage))
-    mapeNN = mean_absolute_percentage_error(realValue, nnAverage)
-    print('Test RMSE Arima: %.3f' % errorArima)
-    print('Test MAPE Arima: %.3f ' % mapeArima)
-    print('Test RMSE NN: %.3f' % errorNN)
-    print('Test MAPE NN: %.3f ' % mapeNN)
-    plt.plot(indices, realValue)
-    plt.plot(Arima, color='red')
-    plt.plot(nnAverage, color='green')
-    plt.title("predictions 8-10 jan 30")
-    plt.xticks(rotation=90)
-    plt.gcf().subplots_adjust(bottom=0.25)
-    if xaxis:
-        plt.MaxNLocator(nbins=10)
-    plt.show()
+#endregion
 
 if __name__ == "__main__":
     main(sys.argv[1:])
@@ -355,39 +340,20 @@ if __name__ == "__main__":
     else:
         dataset = dataFrame = pd.read_csv(outputFile, sep=";", decimal=",", encoding="utf-8", header=0, low_memory=False)
 
-    dataset = preprocessor.PreProcess(dataset, filePath=CreateCsvFilePath("Aggregated5MinIntervals", detectorIds), threshold=1000)
-    #ShowOriginalData
+    dataset = preprocessor.PreProcess(dataset, filePath=CreateCsvFilePath("Aggregated5MinIntervals", detectorIds), intervalInMinutes=aggregationinterval,threshold=1000)
     #VisualizePreprocessedDataset(dataset)
-    #Show Clusters and Autocorrelations
     #AnalyzeDataset(dataset)
     #AnalyzeDatasetNN(dataset, pd.datetime(2014,1,22,8,0,0))
-    #MakeForecasts
-    # ForecastTraffic(dataset)
     ForecastManager(dataset)
-    # clusterSorters = GetClusterDict()
-    # dict, clusterNames = GetClusterDict()
-    # dataset = preprocessor.Cluster(dataset, methodDictionaries=dict)
-    # dataset2 = preprocessor.Filter(dataset, 'weekday', 2, True)
-    #
-    # for cluster in clusterNames:
-    #     clusterFrame = dataset2.xs(cluster, level=1, drop_level=True)
-    #     ArimaForecasting(clusterFrame,cluster,predictionLags=6)
 
 
 
-
-
-
+"""Obsolete stuff"""
 # Tutoring questions:
 # - how specific should the model be? Working against a general dataset or can we make a specific implementation towards traffikverkets dataset?
 # - Make assumption that we have enough data (always) for historical imputation?
 # - How to handle single measurement. normal number of measuremen 1300-1436
 
-
-# dataset['Timestamp'] = pd.to_datetime(dataset['Timestamp'])
-# dataFrame = dataset[dataset['VehicleClassID'] == 0].groupby(['Timestamp'])['NoVehicles'].sum()
-# print(dataFrame.index.date)
-# print(dataFrame.groupby(dataFrame.index.date).count())
 
 
   # train = clusterFrame[clusterFrame.index.date <= pd.datetime(2014,1,29).date()].values
@@ -436,3 +402,47 @@ if __name__ == "__main__":
   #   plt.plot(predictions, color='red')
   #   plt.title(cluster)
   #   plt.show()
+
+def PlotDetectorData(dataFrame):
+    dataFrame['Timestamp'] = pd.to_datetime(dataFrame['Timestamp'])
+    dataFrame = dataFrame[dataFrame['VehicleClassID'] == 0].groupby(['Timestamp'])['NoVehicles'].sum()
+    # dataFrame = dataFrame.groupby(dataFrame.index.map(lambda t: t.day)).sum()
+    # dataFrame = dataFrame.groupby(dataFrame.index.map(lambda t: t.day)).sum()
+    dataFrame.plot()
+    plt.show()
+
+
+def plotClusters(dataset, clusters, date=None):
+    if (date == None):
+        filteredFrame = dataset
+    else:
+        filteredFrame = dataset.xs(date, level=0, drop_level=False)
+
+    for cluster in clusters:
+        clusterFrame = filteredFrame.xs(cluster, level=1, drop_level=False)
+        with pd.option_context('display.max_rows', None, 'display.max_columns', 3):
+            print(clusterFrame)
+        clusterFrame.plot(y='NoVehicles')
+        plt.title(cluster)
+        plt.show()
+        acf(clusterFrame.values)
+        plt.title(cluster + " acf")
+        plt.show()
+        pacf(clusterFrame.values)
+        plt.title(cluster + " pacf")
+        plt.show()
+
+
+def TrainArimaWholeSet(dataset):
+    morningData = dataset.xs('morning', level=1, drop_level=True)
+    print(morningData)
+    model = ARIMA(morningData, order=(2, 1, 1))
+    model_fit = model.fit(disp=0)
+    print(model_fit.summary())
+    # plot residual errors
+    residuals = pd.DataFrame(model_fit.resid)
+    residuals.plot()
+    plt.show()
+    residuals.plot(kind='kde')
+    plt.show()
+    print(residuals.describe())
