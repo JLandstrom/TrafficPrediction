@@ -1,9 +1,5 @@
-from datetime import datetime
-
-import matplotlib
+import os
 import pandas as pd
-import matplotlib.pyplot as plt
-import sys, getopt
 import traceback
 
 class CsvTrafficDataHandler():
@@ -16,12 +12,13 @@ class CsvTrafficDataHandler():
     allColumns: List of column names in file being read
     separator: separator of segments in csv file
     """
-    def __init__(self, inputFilePath, outputFilePath, allColumns, separator=';' ):
-        self.inputFilePath = inputFilePath
-        self.outputFilePath = outputFilePath
+    def __init__(self, inputDirectory, allColumns, detectorIds, separator=';' ):
+        self.inputDirectory = inputDirectory
         self.allColumns = allColumns
         self.separator = separator
         self.dataset = pd.DataFrame()
+        self.detectorIds = detectorIds
+        self.outputFilePath = self.CreateCsvFilePath("data_detectorId", self.detectorIds)
 
     """
     reads data file and extracts data from chosen detectors
@@ -32,23 +29,27 @@ class CsvTrafficDataHandler():
     returns:
     a dataframe with extracted data for selected ids
     """
-    def ReadFile(self, detectorIds, decimal=',', encoding='utf-8'):
-        print("Starts reading input file...")
+    def ReadFiles(self, decimal=',', encoding='utf-8'):
+        print("Starts reading input files...")
         booleans = []
         appendedFrames = []
-        i = 1
         try:
-            for chunk in pd.read_csv(self.inputFilePath, sep=self.separator, decimal=decimal,
-                                     encoding=encoding, chunksize=1000000, names=self.allColumns, index_col=False):
-                print("handling chunk: " + repr(i))
-                i = i + 1
-                booleans.clear()
-                for detId in chunk.DetectorID:
-                    if detId in detectorIds:
-                        booleans.append(True)
-                    else:
-                        booleans.append(False)
-                appendedFrames.append(chunk[booleans])
+            for file in os.listdir(self.inputDirectory):
+                print('Reading file: ' + file)
+                i = 1
+                filename = self.CreateInputFilePath(file)
+                if filename.endswith(".csv"):
+                    for chunk in pd.read_csv(filename, sep=self.separator, decimal=decimal,
+                                             encoding=encoding, chunksize=1000000, names=self.allColumns, index_col=False):
+                        print("handling chunk: " + repr(i))
+                        i = i + 1
+                        booleans.clear()
+                        for detId in chunk.DetectorID:
+                            if detId in self.detectorIds:
+                                booleans.append(True)
+                            else:
+                                booleans.append(False)
+                        appendedFrames.append(chunk[booleans])
         except:
             print("Error while reading data")
             traceback.print_exc()
@@ -63,12 +64,8 @@ class CsvTrafficDataHandler():
     dataset: dataframe to write
     extractedColumns: Columns in dataframe
     """
-    def WriteFile(self, selectedColumns):
+    def WriteFile(self, toPrint):
         try:
-            if not selectedColumns:
-                toPrint = self.dataset
-            else:
-                toPrint = self.ExtractDataFromColumns(selectedColumns)
             print("Writing to file ", self.outputFilePath)
             toPrint.to_csv(self.outputFilePath, sep=self.separator, index=False)
         except:
@@ -76,10 +73,15 @@ class CsvTrafficDataHandler():
             return False
         return True
 
-    """
-    Extracts desired columns from the dataset
-    parameters:
-    selectedColumns: List of desired column names
-    """
-    def ExtractDataFromColumns(self, selectedColumns):
-        return pd.DataFrame(self.dataset, columns=selectedColumns)
+    def CreateCsvFilePath(self, fileName, additions=[]):
+        outputFile = fileName
+        for addition in additions:
+            outputFile += "_" + str(addition)
+        return outputFile + ".csv"
+
+    def CreateInputFilePath(self, file):
+        filePath = self.inputDirectory
+        if filePath.endswith('\\') == False:
+            filePath += '\\'
+        filePath += file
+        return filePath

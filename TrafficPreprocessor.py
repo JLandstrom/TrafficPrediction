@@ -24,49 +24,33 @@ class TrafficPreprocessor():
     def __init__(self, mdHandler = 'knn'):
         self.mdHandler = mdHandler
 
-    """
-    
-    """
+    """"""
     def LinearImputation(self, dataframe):
         return dataframe.interpolate(method='linear')
 
+    """"""
     def NearestNeighborsImputation(self, dataframe):
         return dataframe.interpolate(method='nearest')
 
     """
     Preprocesses dataset by accumulating into intervals and imputating missing values
-    
-    Parameters:
-    Required
-    dataset: dataframe holding data
-    
-    Optional
-    vehicleClasses: List of integers. Defines what vehicleclasses are to be handled. Empty list means handling all classes
-    filePath: string. If given, accumulated and preprocessed dataset is printed.
-    interval: string. Accumulation interval.
     """
-    def PreProcess(self, dataset, vehicleClasses=[], filePath="", intervalInMinutes=5, threshold=None):
-        if (vehicleClasses == []):
-            pass
+    def StandardizeTimeSeries(self, dataset, vehicleClass=0, intervalInMinutes=15, threshold=None,):
 
         intervalString = repr(intervalInMinutes) +"T"
+        dataset['Timestamp'] = pd.to_datetime(dataset['Timestamp'])
+        dataframe = dataset[dataset['VehicleClassID'] == vehicleClass]
+        dataframe = dataframe[['Timestamp', 'NoVehicles']].groupby(
+            ['Timestamp']).sum()
 
         datesToBeRemoved = []
         if threshold != None:
-            datesToBeRemoved = self.RemoveDays(dataset, threshold)
-
-        dataset['Timestamp'] = pd.to_datetime(dataset['Timestamp'])
-
-        dataframe = dataset[dataset['VehicleClassID'] == 0]
-        dataframe = dataframe[['Timestamp', 'NoVehicles']].groupby(
-            ['Timestamp']).sum()
+            datesToBeRemoved = self.RemoveDays(dataframe, threshold)
 
         dataframe = dataframe.resample(intervalString).mean()
         if datesToBeRemoved != []:
             booleans = [False if index.date() in datesToBeRemoved else True for index in dataframe.index]
             dataframe = dataframe[booleans]
-
-        #dataframe = dataframe[dataframe.index.dayofweek < 5]
 
         dataframe['NoVehicles'] = pd.to_numeric(dataframe['NoVehicles'] * intervalInMinutes, downcast='integer')
         dataframe['NoVehicles'] = dataframe['NoVehicles'].round()
@@ -77,17 +61,14 @@ class TrafficPreprocessor():
             newDataframe = self.LinearImputation(dataframe)
         else:
             raise ValueError("mvHandler value not valid. Must be in {'knn', 'linear'}")
-
-        if (filePath != ""):
-            newDataframe.to_csv(filePath, sep=";", index=True)
-
-        #newDataframe['Timestamp'] = newDataframe.index.astype(np.int64)
         return newDataframe
 
-    def Cluster(self, dataset, sortCategory=True, methodDictionaries = None, sortDayType=True):
+    """"""
+    def Cluster(self, dataset, methodDictionaries = None, sortDayType=True):
         dataset['Date'] = pd.to_datetime(dataset.index)
         columnList = ['Date']
-        if sortCategory & (methodDictionaries != None):
+        levels = 0
+        if methodDictionaries != None:
             categories = []
             for time in dataset['Date']:
                 for cluster, method in methodDictionaries.items():
@@ -97,38 +78,32 @@ class TrafficPreprocessor():
             dataset['Category'] = categories
             if dataset.shape[0] != len(dataset['Category']):
                 raise ValueError('All Time Series instances does not fit given categories')
-        #     dataset['Category'] = ['dawn' if time.time() < pd.datetime(2014,1,1,7,30).time()
-        #                        else 'morning' if ((time.time() >= pd.datetime(2014,1,1,7,30).time()) & (time.time() < pd.datetime(2014,1,1,10,0).time()))
-        #                        else 'lunch' if ((time.time() >= pd.datetime(2014,1,1,10,0).time()) & (time.time() < pd.datetime(2014,1,1,14,0).time()))
-        #                        else 'afternoon' if((time.time() >= pd.datetime(2014,1,1,14,0).time()) & (time.time() < pd.datetime(2014,1,1,17,0).time()))
-        #                        else 'dusk' for time in dataset['Date']]
             columnList.append('Category')
+            levels += 1
 
         if(sortDayType):
             dataset['DayType'] = ['weekday' if day.dayofweek < 5
                                else 'weekend' for day in dataset['Date']]
             columnList.append('DayType')
+            levels += 1
 
         return dataset.set_index(columnList)
 
-
+    """"""
     def RemoveDays(self, dataFrame, threshold):
-        dataFrame['Timestamp'] = pd.to_datetime(dataFrame['Timestamp'])
-        dataFrame = dataFrame[dataFrame["VehicleClassID"] == 0]
-        dataFrame = dataFrame[["NoVehicles","Timestamp"]].groupby(["Timestamp"]).sum()
-        #dataFrame = dataFrame[dataFrame['VehicleClassID'] == 0].groupby(['Timestamp'])['NoVehicles'].sum()
         temp = dataFrame.groupby(dataFrame.index.date).count()
         temp.columns = ["NoMeasurements"]
+        removeDates = [index for index,row in temp.iterrows() if row['NoMeasurements'] < threshold]
+        return removeDates
 
-        removeDates = []
-        # for index, row in temp.iterrows():
-        #     if row['NoMeasurements'] < threshold:
-        #         removeDates.append(index)
-
-        removeDates2 = [index for index,row in temp.iterrows() if row['NoMeasurements'] < threshold]
-        #booleans = [False if index.date() in removeDates2 else True for index in dataFrame.index]
-        return removeDates2
-
-    # dataframe = dataframe[dataframe.index.dayofweek < 5]
+    """"""
     def Filter(self, dataFrame, arg, level, dropLevel=True):
         return dataFrame.xs(arg,level=level,drop_level=dropLevel)
+
+    """
+    Extracts desired columns from the dataset
+    parameters:
+    selectedColumns: List of desired column names
+    """
+    def ExtractDataFromColumns(self, dataset,selectedColumns):
+        return pd.DataFrame(dataset, columns=selectedColumns)
