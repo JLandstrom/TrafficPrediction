@@ -7,15 +7,15 @@ import pandas as pd
 
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from statsmodels.tsa.statespace.sarimax import SARIMAX
-from statsmodels.tsa.stattools import adfuller, acf, pacf
-from statsmodels.tsa.stattools import adfuller, acf, pacf
-import matplotlib.dates as dates
+
+from statsmodels.tsa.stattools import  acf, pacf
+
 
 
 import FileHandler
 import TrafficPreprocessor
 import CorrelationExperimenter
-import TrafficAnalyzer
+import TrafficAnalysisHelper
 
 """
 Instructions:
@@ -36,24 +36,36 @@ dayType = ['weekday', 'weekend']
 
 """Script parameters - maybe make input variables for them"""
 """Set these up before running script"""
-detectorIds = [1064,1065]
-inputDirectory = "TrafficDataFiles"
-shouldPlot = True
-shouldImport = False
-aggregationinterval = 60
-RunDataAnalyze = False
-RunVisualizeData = False
-RunForecastProcess = True
-TrainingDays = 9
-ForecastWholeDay = True
-TimeStepsToForecast = 1
-EvaluateModels = True
-Threshold = 1000
-ClusterMethodDictionary = None
-ClusterDayType = True
-Seasonal = 0
-NonSeasonal = 0
-SeasonLength = 1
+
+#Import settings
+shouldImport = False                            #if data should be imported from original files
+detectorIds = [1064,1065]                       #detector ids to extract from original files
+inputDirectory = "TrafficDataFiles"             #directory path from which to import files
+
+#Preprocessing settings
+aggregationinterval = 60                        #Aggregetation interval in time series
+Threshold = 0.9                                 #percentage of non-nans to keep day in time series
+ClusterMethodDictionary = None                  #dictionary of 'clustername':func for clustring parts of day
+ClusterDayType = True                           #cluster data into weekdays and weekends
+
+#Analysis settings
+RunDataAnalyze = True                           #specifies whether to print plots for analysis
+EvaluateModels = True                           #specifies whether to create AIC/BIC matrix for model fitness evaluation
+Seasonal = 1                                    #seasonal differencing for analysis
+NonSeasonal = 0                                 #nonseasonal differencing for analysis
+Nlags = 100                                     #No of lags to print i acf and pacf
+MaxNonSeasonal = (1,1,1)                        #Model evaluation: max values for (p,d,q)
+MaxSeasonal = (1,1,1)                           #Model evaluation: max values for (P,D,Q)
+
+#Forecast settings
+RunForecastProcess = False                      #Specifies if forecast should be done
+ForecastWholeDay = True                         #Indicates that times of day are not clustered for forecast
+TimeStepsToForecast = 1                         #No of step-ahead forecasts
+
+#General settings
+SeasonLength = int(1440/aggregationinterval)    #number of lags in a day
+TrainingDays = 30                               #No of training days
+TestDays = 1                                    #No of test days
 
 #endregion
 
@@ -273,51 +285,18 @@ def GetXaxis(clusterName):
 #endregion
 
 #region VisualizeDataForAnalyze
-def VisualizePreprocessedDataset(dataset):
-    indices = [i for i in range(len(dataset.values))]
-    plt.plot(indices, dataset['NoVehicles'])
-    plt.title('January')
-    plt.show()
-
-    week20to26 = dataset[((dataset.index.date >= pd.datetime(2014,1,20).date())
-        & (dataset.index.date < pd.datetime(2014,1,27).date()))]
-
-    indices = [i for i in range(len(week20to26.values))]
-    plt.plot(indices, week20to26)
-    plt.title('January 20 to 26')
-    plt.show()
-
-    jan22 = dataset[dataset.index.date == pd.datetime(2014,1,22).date()]
-    indices = [i for i in range(len(jan22.values))]
-    plt.plot(indices, jan22)
-    plt.title('January 22')
-    plt.show()
-
-def AnalyzeDatasetNN(dataset, date):
-    preProcessor = TrafficPreprocessor.TrafficPreprocessor()
-    datasetWoWeekend = preProcessor.Cluster(dataset)
-    datasetWoWeekend = preprocessor.Filter(datasetWoWeekend,'weekday',1)
-    history = datasetWoWeekend[datasetWoWeekend.index.time == date.time()]
-
-    corrExp = CorrelationExperimenter.CorrelationExperimenter(history)
-    indices = [date.strftime('%d/%m %H:%M') for date in history.index]
-    corrExp.PlotCorrelations(history, 'Whole set',indices)
-    print('Dickey Fuller whole set')
-    corrExp.DickeyFullerTest(history)
-
-    diffData = corrExp.DifferenceData()
-    indices = [date.strftime('%d/%m %H:%M') for date in diffData.index]
-    corrExp.PlotCorrelations(diffData, 'Whole set diff 1 ', indices)
-    print('Dickey Fuller whole set diff 1')
-    corrExp.DickeyFullerTest(diffData)
-
 def AnalysisManager(dataset):
-    trafficAnalyzer = TrafficAnalyzer.TrafficAnalyzer()
+    indicesPerDay = 1440/aggregationinterval
+    trafficAnalyzer = TrafficAnalysisHelper.TrafficAnalyzer()
     tempDataSet = trafficAnalyzer.DifferenceDataset(dataset, NonSeasonal, Seasonal, SeasonLength)
     trafficAnalyzer.AdfTest(tempDataSet)
-    trafficAnalyzer.PlotDataset(tempDataSet)
-    trafficAnalyzer.PlotAcf(tempDataSet, SeasonLength*2)
-    trafficAnalyzer.PlotPacf(tempDataSet, SeasonLength*2)
+    trafficAnalyzer.PlotDataset(tempDataSet, "Traffic data diff:" + repr(NonSeasonal) + " sdiff:" + repr(Seasonal) + "|" + repr(SeasonLength))
+    trafficAnalyzer.PlotDataset(tempDataSet, "Traffic data diff:" + repr(NonSeasonal) + " sdiff:" + repr(Seasonal) + "|" + repr(SeasonLength))
+    trafficAnalyzer.PlotAcf(tempDataSet, "Traffic data diff:" + repr(NonSeasonal) + " sdiff:" + repr(Seasonal) + "|" + repr(SeasonLength), nlags=Nlags)
+    trafficAnalyzer.PlotPacf(tempDataSet, "Traffic data diff:" + repr(NonSeasonal) + " sdiff:" + repr(Seasonal) + "|" + repr(SeasonLength), nlags=Nlags)
+
+    if EvaluateModels:
+        trafficAnalyzer.FindBestModelFitness(trainSet, MaxNonSeasonal, MaxSeasonal, SeasonLength)
 
 def AnalyzeDataset(dataset, PrintParameterMatrix=False):
     preProcessor = TrafficPreprocessor.TrafficPreprocessor()
@@ -357,12 +336,13 @@ if __name__ == "__main__":
     dataset, levels = preprocessor.Cluster(dataset, methodDictionaries=ClusterMethodDictionary, sortDayType=ClusterDayType)
     if ClusterDayType == True:
         dataset = preprocessor.Filter(dataset, 'weekday', levels)
-
-
+    sLength = int(GetSeasonalLength(aggregationinterval))
+    trainSet = dataset[int(-TrainingDays * sLength):int(-TestDays * sLength)]
+    testSet = dataset[int(-TestDays * sLength):]
     if RunDataAnalyze:
-        AnalysisManager(dataset)
+        AnalysisManager(trainSet)
     if RunForecastProcess:
-        ForecastManager(dataset)
+        ForecastManager(trainSet, testSet)
 
 
 #region Obsolete

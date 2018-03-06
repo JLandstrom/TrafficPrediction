@@ -7,16 +7,22 @@ from statsmodels.tsa.stattools import adfuller
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
+from matplotlib.ticker import MultipleLocator, FormatStrFormatter
+import matplotlib.dates as mdates
+from matplotlib.ticker import Formatter
 
 class TrafficAnalyzer():
 
-    def PlotDataset(self, dataset,title, indices=None, nlags=40):
-        if indices == None:
-            indices = [i for i in range(len(dataset.values))]
-        plt.plot(indices, dataset.values)
-        plt.title(title)
-        plt.xticks(rotation=90)
-        plt.gcf().subplots_adjust(bottom=0.25)
+
+    def PlotDataset(self, dataset,title):
+        formatter = MyFormatter(dataset.index.date)
+        fig, ax = plt.subplots()
+        ax.xaxis.set_major_formatter(formatter)
+        ax.yaxis.grid(True, which='major', ls='dotted')
+        ax.plot(np.arange(len(dataset.values)), dataset.values)
+        fig.autofmt_xdate()
+        ax.fmt_xdata = mdates.DateFormatter('%Y-%m-%d')
+        ax.set_title(title)
         plt.show()
 
     def PlotAcf(self, dataset, title, indices=None, nlags=40):
@@ -42,7 +48,7 @@ class TrafficAnalyzer():
         for key, value in result[4].items():
             print('\t%s: %.3f' % (key, value))
 
-    def FindBestModelFitness(self, dataset, maxNonSeasonal, maxSeasonal, lagsPerDay, noTrainingDays):
+    def FindBestModelFitness(self, dataset, maxNonSeasonal, maxSeasonal, lagsPerDay):
         max_p = maxNonSeasonal[0]
         max_d = maxNonSeasonal[1]
         max_q = maxNonSeasonal[2]
@@ -53,7 +59,6 @@ class TrafficAnalyzer():
         bic = list()
         orders = list()
 
-        train_set = dataset[-noTrainingDays * int(lagsPerDay):-int(lagsPerDay)]
         for P, D, Q in itertools.product(range(0, max_P + 1),
                                          range(0, max_D + 1),
                                          range(0, max_Q + 1)):
@@ -64,7 +69,7 @@ class TrafficAnalyzer():
                     continue
 
                 try:
-                    model = SARIMAX(train_set, order=(p, d, q), seasonal_order=(P, D, Q, int(lagsPerDay)))
+                    model = SARIMAX(dataset, order=(p, d, q), seasonal_order=(P, D, Q, int(lagsPerDay)))
                     result = model.fit()
                     order = 'Model: Nonseanonal (' + repr(p) + ',' + repr(d) + ',' + repr(q) + ') Seasonal: ' + \
                             '(' + repr(P) + ',' + repr(D) + ',' + repr(Q) + ')'
@@ -78,3 +83,19 @@ class TrafficAnalyzer():
 
         results = pd.DataFrame(index=orders, data={'aic': aic, 'bic': bic})
         print(results)
+
+    def ParseDate(self, date):
+        return date.strftime('%Y-%m-%d')
+
+class MyFormatter(Formatter):
+    def __init__(self, dates, fmt='%Y-%m-%d'):
+        self.dates = dates
+        self.fmt = fmt
+
+    def __call__(self, x, pos=0):
+        'Return the label for time x at position pos'
+        ind = int(np.round(x))
+        if ind >= len(self.dates) or ind < 0:
+            return ''
+
+        return self.dates[ind].strftime(self.fmt)

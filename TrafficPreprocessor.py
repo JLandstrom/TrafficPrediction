@@ -35,7 +35,7 @@ class TrafficPreprocessor():
     """
     Preprocesses dataset by accumulating into intervals and imputating missing values
     """
-    def StandardizeTimeSeries(self, dataset, vehicleClass=0, intervalInMinutes=15, threshold=None,):
+    def StandardizeTimeSeries(self, dataset, vehicleClass=0, intervalInMinutes=15, threshold=None):
 
         intervalString = repr(intervalInMinutes) +"T"
         dataset['Timestamp'] = pd.to_datetime(dataset['Timestamp'])
@@ -43,11 +43,12 @@ class TrafficPreprocessor():
         dataframe = dataframe[['Timestamp', 'NoVehicles']].groupby(
             ['Timestamp']).sum()
 
-        datesToBeRemoved = []
-        if threshold != None:
-            datesToBeRemoved = self.RemoveDays(dataframe, threshold)
-
         dataframe = dataframe.resample(intervalString).mean()
+        datesToBeRemoved = []
+        maxCount = int(1440 / intervalInMinutes)
+        if threshold != None:
+            datesToBeRemoved = self.RemoveDays(dataframe, threshold, maxCount)
+
         if datesToBeRemoved != []:
             booleans = [False if index.date() in datesToBeRemoved else True for index in dataframe.index]
             dataframe = dataframe[booleans]
@@ -87,13 +88,13 @@ class TrafficPreprocessor():
             columnList.append('DayType')
             levels += 1
 
-        return dataset.set_index(columnList)
+        return dataset.set_index(columnList), levels
 
     """"""
-    def RemoveDays(self, dataFrame, threshold):
+    def RemoveDays(self, dataFrame, threshold, maxCount):
         temp = dataFrame.groupby(dataFrame.index.date).count()
         temp.columns = ["NoMeasurements"]
-        removeDates = [index for index,row in temp.iterrows() if row['NoMeasurements'] < threshold]
+        removeDates = [index for index,row in temp.iterrows() if row['NoMeasurements']/maxCount < threshold]
         return removeDates
 
     """"""
