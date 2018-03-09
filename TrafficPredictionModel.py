@@ -2,7 +2,7 @@ import sys
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
-from statsmodels.tsa.stattools import  acf, pacf
+import matplotlib.patches as patch
 
 import FileHandler
 import TrafficPreprocessor
@@ -30,7 +30,7 @@ detectorIds = [1064,1065]                       #detector ids to extract from or
 inputDirectory = "TrafficDataFiles"             #directory path from which to import files
 
 #Preprocessing settings
-aggregationinterval = 15                        #Aggregetation interval(minutes) in time series
+aggregationinterval = 30                        #Aggregetation interval(minutes) in time series
 Threshold = 0.9                                 #percentage of non-nans to keep day in time series
 ClusterMethodDictionary = None                  #dictionary of 'clustername':func for clustring parts of day
 ClusterDayType = True                           #cluster data into weekdays and weekends
@@ -38,11 +38,15 @@ ClusterDayType = True                           #cluster data into weekdays and 
 #General settings
 SeasonLength = int(1440/aggregationinterval)    #number of lags in a day
 TestDays = 1                                    #No of test days
-TrainingDays = 5 + 1 + TestDays                     #No of training days
+TrainingDays = 5 + 1 + TestDays                #No of training days
+CustomTrainingSet = True                        #only use same day in training set
+Scenario = 'Scenario 1'
+PlotConsolidatedPredictionResults = True       # Print saved result to combine in single plot
+ScenarioTitle = "Results Scenario 1-3"
 
 #Analysis settings
-RunDataAnalyze = True                           #specifies whether to print plots for analysis
-EvaluateModels = True                           #specifies whether to create AIC/BIC matrix for model fitness evaluation
+RunDataAnalyze = False                           #specifies whether to print plots for analysis
+EvaluateModels = False                          #specifies whether to create AIC/BIC matrix for model fitness evaluation
 Seasonal = 1                                    #seasonal differencing for analysis
 NonSeasonal = 0                                 #nonseasonal differencing for analysis
 Nlags = SeasonLength*2                                    #No of lags to print i acf and pacf
@@ -52,17 +56,22 @@ MaxSeasonal = (0,1,1)                           #Model evaluation: max values fo
 #Forecast settings
 RunForecastProcess = False                      #Specifies if forecast should be done
 TimeStepsToForecast = 1                         #No of step-ahead forecasts
-NonSeasonalArgument = (0,0,2)                   #Nonseasonal orders (p,d,q)
-SeasonalArgument = (0,1,1,SeasonLength)         #Seasonal orders (P,D,Q,S)
-RunNaivePrediction = False                      #If comparative prediction should be done
-PredictionSteps = SeasonLength                            #How many steps to forecast
+NonSeasonalArgument = (1,0,0)                   #Nonseasonal orders (p,d,q)
+SeasonalArgument = (0,1,0,SeasonLength)         #Seasonal orders (P,D,Q,S)
+RunNaivePrediction = True                      #If comparative prediction should be done
+PredictionSteps = SeasonLength                  #How many steps to forecast
+SaveResult = True                               #Saves prediction results
+
 
 #endregion
 
 def ForecastManager(train,test):
     yTrue = np.array(test).flatten()
     trafficModeller = TrafficModeller.SarimaTrafficModeller()
+    resultsToSave = pd.DataFrame()
+    resultsToSave['yTrue' + Scenario] = yTrue
     sarimaResults = trafficModeller.SarimaPrediction(train, test,NonSeasonalArgument, SeasonalArgument,PredictionSteps)
+    resultsToSave['SARIMA ' + Scenario] = sarimaResults
     trafficModeller.Evaluate("Sarima Forecast\nSettings:\ntraindays: " +
                              repr(TrainingDays) + "\nseason:" + repr(SeasonLength) +
                              "\nagg:" + repr(aggregationinterval) + "\nhorizon:" + repr(PredictionSteps),
@@ -70,14 +79,19 @@ def ForecastManager(train,test):
                              sarimaResults)
     if RunNaivePrediction:
         nnResults = trafficModeller.NnHistoricalAveragePrediction(train, test)
+        resultsToSave['NNHistorical ' + Scenario] = nnResults
         trafficModeller.Evaluate("Sarima Forecast\nSettings:\ntraindays: " +
                                  repr(TrainingDays) + "\nseason:" + repr(SeasonLength) +
                                  "\nagg:" + repr(aggregationinterval) + "\nhorizon:" + repr(PredictionSteps),
                                  yTrue,
                                  nnResults)
         trafficModeller.PlotPredictions("Traffic Forecast", yTrue, sarimaResults, nnResults)
+
     else:
         trafficModeller.PlotPredictions("Traffic Forecast", yTrue, sarimaResults)
+    if SaveResult:
+        resultsToSave.index = test.index
+        resultsToSave.to_csv(Scenario + '.csv', sep=';')
 
 def AnalysisManager(dataset):
     trafficAnalyzer = TrafficAnalysisHelper.TrafficAnalyzer()
@@ -90,6 +104,20 @@ def AnalysisManager(dataset):
 
     if EvaluateModels:
         trafficAnalyzer.FindBestModelFitness(trainSet, MaxNonSeasonal, MaxSeasonal, SeasonLength)
+
+def PlotPredictionsFromFile():
+    colors = ['blue','green', 'red', 'yellow', ' pink', 'orange']
+    aggregatedResults = pd.read_csv('aggregated_results.csv', sep=";", decimal=",", encoding="utf-8", index_col=0, header=0, low_memory=False)
+    colorindex = 0
+    patches = list()
+    for columnName in aggregatedResults.columns.values:
+        plt.plot(np.array(aggregatedResults[columnName].values).astype(float), color=colors[colorindex])
+        patches.append(patch.Patch(color=colors[colorindex], label=columnName))
+        colorindex += 1
+    plt.title(ScenarioTitle)
+    plt.legend(handles=patches)
+    plt.gca().yaxis.grid(True, which='major', ls='dotted')
+    plt.show()
 
 if __name__ == "__main__":
     fileHandler = FileHandler.CsvTrafficDataHandler(inputDirectory, allColumns, detectorIds)
@@ -109,12 +137,19 @@ if __name__ == "__main__":
     dataset, levels = preprocessor.Cluster(dataset, methodDictionaries=ClusterMethodDictionary, sortDayType=ClusterDayType)
     if ClusterDayType == True:
         dataset = preprocessor.Filter(dataset, 'weekday', levels)
-    trainSet = dataset[int(-TrainingDays * SeasonLength):int(-TestDays * SeasonLength)]
-    testSet = dataset[int(-TestDays * SeasonLength):]
+    if CustomTrainingSet:
+        trainSet = dataset[:int(-TestDays * SeasonLength)]
+        testSet = dataset[int(-TestDays * SeasonLength):]
+        trainSet = trainSet[trainSet.index.dayofweek.values == testSet.index[0].dayofweek]
+    else:
+        trainSet = dataset[int(-TrainingDays * SeasonLength):int(-TestDays * SeasonLength)]
+        testSet = dataset[int(-TestDays * SeasonLength):]
     if RunDataAnalyze:
         AnalysisManager(trainSet)
     if RunForecastProcess:
         ForecastManager(trainSet, testSet)
+    if PlotConsolidatedPredictionResults:
+        PlotPredictionsFromFile()
 
 
 #region Obsolete

@@ -29,7 +29,7 @@ class SarimaTrafficModeller:
 
     def NnHistoricalAveragePrediction(self,train,test):
         predictions = list()
-        for date in train.index:
+        for date in test.index:
             history = train[train.index.time == date.time()]
             predictions.append(history['NoVehicles'].mean())
         return predictions
@@ -52,8 +52,8 @@ class SarimaTrafficModeller:
 
     def PlotPredictions(self, title, yTrue, sarimaPredictions, historicalPredictions=None):
         plt.plot(yTrue, color='blue')
-        plt.plot(sarimaPredictions, color='red')
         yTruePatch = patch.Patch(color='blue', label='Original data')
+        plt.plot(sarimaPredictions, color='red')
         sarimaPredictionsPatch = patch.Patch(color='red', label='SARIMA')
         if historicalPredictions == None:
             plt.legend(handles=[yTruePatch, sarimaPredictionsPatch])
@@ -65,3 +65,9 @@ class SarimaTrafficModeller:
         plt.title(title)
         plt.gca().yaxis.grid(True, which='major', ls='dotted')
         plt.show()
+
+class PredictionResultContainer:
+    def __init__(self, predictions, plotColor, plotLabel):
+        self.predictions = predictions
+        self.plotColor = plotColor
+        self.plotLabel = plotLabel
